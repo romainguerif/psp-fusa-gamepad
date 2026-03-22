@@ -179,7 +179,7 @@ int gamepad_int(SceSize args, void *argp)
 	sceCtrlReadBufferPositive(&pad, 1);
 	
 	memset( data, 0x00, sizeof(data) );
-	memset( data, 0x7F, AXIS_Rz+1 );
+	memset( data, 0x7F, AXIS_Ry+1 );
 
 		/* Analog stick → axes X/Y (primary, recognized everywhere) */
 		data[AXIS_X] = pad.Lx;
@@ -193,8 +193,8 @@ int gamepad_int(SceSize args, void *argp)
 		if ((pad.Buttons & GPsettings.POV_RX)) dx = 0xFF;
 		if ((pad.Buttons & GPsettings.POV_UY)) dy = 0x00;
 		if ((pad.Buttons & GPsettings.POV_DY)) dy = 0xFF;
-		data[AXIS_Z] = dx;
-		data[AXIS_Rz] = dy;
+		data[AXIS_Rx] = dx;
+		data[AXIS_Ry] = dy;
 		}
 
 		/* POV hat — kept for compatibility */
