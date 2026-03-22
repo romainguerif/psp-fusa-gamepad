@@ -180,21 +180,29 @@ int gamepad_int(SceSize args, void *argp)
 	
 	memset( data, 0x00, sizeof(data) );
 	memset( data, 0x7F, AXIS_Rz+1 );
-		
-		if (check_but(GPsettings.AxisSwitcher))
+
+		/* D-pad → axes X/Y (0=left/up, 127=center, 255=right/down) */
 		{
-		data[AXIS_Z] = pad.Ly;
-		data[AXIS_Rz] = pad.Lx;
-		} else {
-		data[AXIS_X] = pad.Lx;
-		data[AXIS_Y] = pad.Ly;
-		};
-		
+		unsigned char dx = 0x7F;
+		unsigned char dy = 0x7F;
+		if ((pad.Buttons & GPsettings.POV_LX)) dx = 0x00;
+		if ((pad.Buttons & GPsettings.POV_RX)) dx = 0xFF;
+		if ((pad.Buttons & GPsettings.POV_UY)) dy = 0x00;
+		if ((pad.Buttons & GPsettings.POV_DY)) dy = 0xFF;
+		data[AXIS_X] = dx;
+		data[AXIS_Y] = dy;
+		}
+
+		/* Analog stick → axes Z/Rz (always) */
+		data[AXIS_Z] = pad.Lx;
+		data[AXIS_Rz] = pad.Ly;
+
+		/* POV hat — kept for compatibility */
 		if ((pad.Buttons & GPsettings.POV_UY)) data[POV] = 1;
 		if ((pad.Buttons & GPsettings.POV_RX)) data[POV] = 3;
 		if ((pad.Buttons & GPsettings.POV_DY)) data[POV] = 5;
 		if ((pad.Buttons & GPsettings.POV_LX)) data[POV] = 7;
-		
+
 		if ((pad.Buttons & GPsettings.POV_UY) && (pad.Buttons & GPsettings.POV_RX)) data[POV] = 2;
 		if ((pad.Buttons & GPsettings.POV_RX) && (pad.Buttons & GPsettings.POV_DY)) data[POV] = 4;
 		if ((pad.Buttons & GPsettings.POV_DY) && (pad.Buttons & GPsettings.POV_LX)) data[POV] = 6;
