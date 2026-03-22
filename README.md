@@ -1,149 +1,73 @@
-# FuSa GAMEPAD
+# FuSa GAMEPAD (Dual Axis Fork)
 
-Perhaps a simpliest way to turn your psp into a powerful PC gamepad (and yes PS3 too)
+Fork of [andy-man/psp-fusa-gamepad](https://github.com/andy-man/psp-fusa-gamepad) — turns your PSP into a USB gamepad.
 
-* Just launch this tiny homebrew 
-* Connect your psp via USB cable to PC (PS3)
-* And you are ready to go :)
+## What's different in this fork
 
-### Installation
+The original FuSa forces you to choose between D-pad OR analog stick as axes — never both at the same time. This fork fixes that.
 
-Just put FusaGamePad folder into <your_psp>:/PSP/GAME folder
+**D-pad and analog stick now work simultaneously on separate axes:**
 
-If you are using PHAT psp you should put it into <your_psp>:/PSP/GAMEXXX folder
+| Input | Axes | Values |
+|---|---|---|
+| D-pad | X / Y | 0 (left/up), 127 (center), 255 (right/down) |
+| Analog stick | Z / Rz | 0–255 (continuous) |
+| D-pad | POV hat | Kept for compatibility |
 
-(where XXX means your FW version - f.e. GAME380 for CFW 3.80)
+No more DigitalSwitcher, no more WLAN toggle — both inputs are always active.
 
-### Compatibilty
+## Install
 
-Any psp (Phat,S&L,3K) running CFW 3.80 and newer
+1. Copy the `release/FusaGamePad/` folder to `PSP:/PSP/GAME/FusaGamePad/`
+2. Launch FuSa GamePad from the XMB
+3. Connect USB — your PSP is a gamepad
 
-This gamepad was designed as usual HID device, so that means you don't need to install any drivers. It's compatible with all modern OSes (Windows, MacOs, Linux etc)
+## Pre-built binaries
 
-It also compatible with PS3 console.
+Ready-to-use files are in the `release/` folder. No need to compile.
 
-### What kind of GAMEPAD will I get?
+## Mapping in PPSSPP (or other emulators)
 
-4 axises: (X/Y/Z/Rz) (Analog Joystick)
+- **D-pad directions** → map to axes X/Y
+- **Analog stick** → map to axes Z/Rz
+- **Buttons** → same as original (Cross, Circle, Square, Triangle, L, R, etc.)
 
-8-directional POV: (Digital Pad)
+## Build from source
 
-And 12 buttons:
-| Buttons | PSP |
-| --- | --- |
-| Button 1 | CROSS |
-| Button 2 | CIRCLE |
-| Button 3 | SQUARE |
-| Button 4 | TRIANGLE |
-| Button 5 | L-TRIGGER |
-| Button 6 | R-TRIGGER |
-| Button 7 | START |
-| Button 8 | SELECT |
-| Button 9 | HOME |
-| Button 10 | VOLDOWN |
-| Button 11 | VOLUP |
-| Button 12 | DISPLAY |
+Requires [PSPSDK](https://github.com/pspdev/pspdev).
 
-### How to use:
+```bash
+export PSPDEV=~/pspdev
+export PATH=$PATH:$PSPDEV/bin
 
-This version allows yo to map buttons your own way.
+cd src/prx && make
+cd ../app && make
+```
 
-Open CONFIG.INI with any text editor software.
+Output: `src/prx/usbgamepad.prx` + `src/app/EBOOT.PBP`
 
-**Available buttons names are:**
+## Compatibility
 
-* NOTE
-* WLAN
-* RIGHT
-* LEFT
-* UP
-* DOWN
-* CROSS
-* CIRCLE
-* SQUARE
-* TRIANGLE
-* LTRIGGER
-* RTRIGGER
-* SELECT
-* START
-* HOME
-* VOLDOWN
-* VOLUP
-* SCREEN
+Any PSP (Phat, Slim, 3000) running CFW. Standard HID device — no drivers needed on any OS.
 
-**AxiSwitcher**
+## 12 Buttons
 
-AxiSwitcher serves to switch between X/Y and R/Rz axes (Left and Right stick)
+| Button | PSP |
+|---|---|
+| 1 | Cross |
+| 2 | Circle |
+| 3 | Square |
+| 4 | Triangle |
+| 5 | L-Trigger |
+| 6 | R-Trigger |
+| 7 | Start |
+| 8 | Select |
+| 9 | Home |
+| 10 | Vol Down |
+| 11 | Vol Up |
+| 12 | Display |
 
-*Note: Orange led will be lighting, when you hold AxiSwitcher.*
+## Credits
 
-**DigitalSwitcher**
-
-DigitalSwitcher serves to switch between Analog and Digital modes.
-
-Analog mode: psp's joystick controls axes and directional buttons control POV
-
-Digital mode: psp's joystick controls POV and directional buttons control axes
-
-Note: Orange led will be lighting, when you hold DigitalSwitcher.
-
-**DeadZone**
-
-Use it to adjust joystick's sensivity.
-
-Allowed values: 0-127
-
-**How to enter the menu?**
-
-Disconnect USB cable if it's connected and press HOME button.
-
-Now you can view current button configuration.
-
-To Exit menu: press HOME or (O)
-
-To Exit the application: press (X)
-
-### Links
-
-* Homepage: [foosa.do.am](http://foosa.do.am)
-
-## Donate
-
-* **[Ko-fi/Paypal](https://ko-fi.com/andymandev)**
-* **[Patreon](https://patreon.com/andy_man)**
-* **[Boosty](https://boosty.to/andy_man/donate)**
-* **[YandexMoney](https://yoomoney.ru/to/410011555252085)**
-* **Bitcoin**: 39VaMnFqCQo751mvDc3M7ADVty71q2tWDm 
-* **TronLink**: TSYe254HXFapEwAAbZFkTHGewezZmnCKnU
-
-### Developers
-
-hnaves - USB driver research
-
-Forb - help with ReportDescriptor
-
-Andy_maN (c) 2010
-
--= FuSa TeaM =-
-
-### Versions
-
-***
-**v0.3**
-* Led indicating
-* Adjustable configuration (via config.ini)
-* Deadzone support
-* Digital/Analog modes
-* No conflicts with drivers ("PSP type D" => "FuSa GamePad")
-***
-**v0.2**
-* 4-Axises (w switcher) 
-* 8-directional POV
-* 12 Buttons
-***
-**v0.1**
-* Initial release
-* Plug'n'Play
-* Does not requires any drivers
-
-
+- **Original**: Andy_maN, hnaves, Forb — [FuSa TeaM](http://foosa.do.am) (2010)
+- **This fork**: [Noeme](https://github.com/romainguerif) (2026)
