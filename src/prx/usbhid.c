@@ -181,21 +181,9 @@ int gamepad_int(SceSize args, void *argp)
 	memset( data, 0x00, sizeof(data) );
 	memset( data, 0x7F, AXIS_Ry+1 );
 
-		/* Analog stick → axes X/Y (primary, recognized everywhere) */
+		/* Analog stick → axes X/Y */
 		data[AXIS_X] = pad.Lx;
 		data[AXIS_Y] = pad.Ly;
-
-		/* D-pad → axes Z/Rz (0=left/up, 127=center, 255=right/down) */
-		{
-		unsigned char dx = 0x7F;
-		unsigned char dy = 0x7F;
-		if ((pad.Buttons & GPsettings.POV_LX)) dx = 0x00;
-		if ((pad.Buttons & GPsettings.POV_RX)) dx = 0xFF;
-		if ((pad.Buttons & GPsettings.POV_UY)) dy = 0x00;
-		if ((pad.Buttons & GPsettings.POV_DY)) dy = 0xFF;
-		data[AXIS_Rx] = dx;
-		data[AXIS_Ry] = dy;
-		}
 
 		/* POV hat — kept for compatibility */
 		if ((pad.Buttons & GPsettings.POV_UY)) data[POV] = 1;
