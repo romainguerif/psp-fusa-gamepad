@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include "fusainterface.h"
 
-PSP_MODULE_INFO("GAMEPAD", 0, 0, 2);
+PSP_MODULE_INFO("GAMEPAD", 0, 2, 0);
 PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER);
 
 #define printf	pspDebugScreenPrintf
@@ -31,9 +31,9 @@ void display_config();
 void display_info(){
 	
 	pspDebugScreenSetXY(0,0);
-	printf(" .: FuSa GAMEPAD :: v0.2 :: coded by Andy_maN :: www.foosa.do.am :.\n");
+	printf(" .: FuSa GAMEPAD :: v3.2 :: fork by romainguerif :.\n");
 	pspDebugScreenSetXY(0,32);
-	printf(" ': Axises - (X/Y/Z/Rz) (Analog+S) :: Buttons - 12 :: rd.ver 0.5 :'\n");
+	printf(" ': Stick(X/Y) + D-pad(Z/Rz+Btn) :: v3.2 :'\n");
 }
 
 void user_wanna_exit(){

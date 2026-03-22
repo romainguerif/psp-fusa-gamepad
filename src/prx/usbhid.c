@@ -16,20 +16,20 @@ int connected = 0, active = 1;
 static unsigned char data[DATA_SIZE] __attribute__ ((aligned(64)));
 GP_Config GPsettings = {
 	PSP_CTRL_NOTE,
-	
-	PSP_CTRL_CROSS,
-	PSP_CTRL_CIRCLE,
-	PSP_CTRL_SQUARE,
-	PSP_CTRL_TRIANGLE,
-	PSP_CTRL_LTRIGGER,
-	PSP_CTRL_RTRIGGER,
-	PSP_CTRL_SELECT,
-	PSP_CTRL_START,
-	
-	PSP_CTRL_HOME,
-	PSP_CTRL_VOLDOWN,
-	PSP_CTRL_VOLUP,
-	PSP_CTRL_SCREEN,
+
+	PSP_CTRL_CROSS,      // Button1  — A
+	PSP_CTRL_CIRCLE,     // Button2  — B
+	PSP_CTRL_SQUARE,     // Button3  — X
+	PSP_CTRL_TRIANGLE,   // Button4  — Y
+	PSP_CTRL_LTRIGGER,   // Button5  — L Shoulder
+	PSP_CTRL_RTRIGGER,   // Button6  — R Shoulder
+	PSP_CTRL_HOME,       // Button7  — L Trigger (filler)
+	PSP_CTRL_SCREEN,     // Button8  — R Trigger (filler)
+
+	PSP_CTRL_SELECT,     // Button9  — Back/Select
+	PSP_CTRL_START,      // Button10 — Start
+	PSP_CTRL_VOLDOWN,    // Button11
+	PSP_CTRL_VOLUP,      // Button12
 	
 	PSP_CTRL_RIGHT,
 	PSP_CTRL_LEFT,
@@ -37,7 +37,7 @@ GP_Config GPsettings = {
 	PSP_CTRL_DOWN
 };
 
-PSP_MODULE_INFO ("FuSaPAD", 0x1006, 1, 1);
+PSP_MODULE_INFO ("FuSaPAD", 0x1006, 2, 0);
 
 // TODO: hook sceIdStorageLookup to send our StringDescriptors (not very important)
 
@@ -179,36 +179,36 @@ int gamepad_int(SceSize args, void *argp)
 	sceCtrlReadBufferPositive(&pad, 1);
 	
 	memset( data, 0x00, sizeof(data) );
-	memset( data, 0x7F, AXIS_Ry+1 );
 
-		/* Analog stick → axes X/Y */
-		data[AXIS_X] = pad.Lx;
-		data[AXIS_Y] = pad.Ly;
+		/* Axes — center at 0x7F */
+		data[AX_X]  = pad.Lx;                                    /* stick L/R */
+		data[AX_Y]  = pad.Ly;                                    /* stick U/D */
+		data[AX_Z]  = 0x7F;                                      /* dpad L/R */
+		data[AX_RZ] = 0x7F;                                      /* dpad U/D */
+		if (pad.Buttons & GPsettings.POV_LX) data[AX_Z]  = 0x00;
+		if (pad.Buttons & GPsettings.POV_RX) data[AX_Z]  = 0xFF;
+		if (pad.Buttons & GPsettings.POV_UY) data[AX_RZ] = 0x00;
+		if (pad.Buttons & GPsettings.POV_DY) data[AX_RZ] = 0xFF;
 
-		/* POV hat — kept for compatibility */
-		if ((pad.Buttons & GPsettings.POV_UY)) data[POV] = 1;
-		if ((pad.Buttons & GPsettings.POV_RX)) data[POV] = 3;
-		if ((pad.Buttons & GPsettings.POV_DY)) data[POV] = 5;
-		if ((pad.Buttons & GPsettings.POV_LX)) data[POV] = 7;
+		/* Buttons 1-12 */
+		if (check_but(GPsettings.Button1))  data[BTN_LO] |= 0x01;
+		if (check_but(GPsettings.Button2))  data[BTN_LO] |= 0x02;
+		if (check_but(GPsettings.Button3))  data[BTN_LO] |= 0x04;
+		if (check_but(GPsettings.Button4))  data[BTN_LO] |= 0x08;
+		if (check_but(GPsettings.Button5))  data[BTN_LO] |= 0x10;
+		if (check_but(GPsettings.Button6))  data[BTN_LO] |= 0x20;
+		if (check_but(GPsettings.Button7))  data[BTN_LO] |= 0x40;
+		if (check_but(GPsettings.Button8))  data[BTN_LO] |= 0x80;
+		if (check_but(GPsettings.Button9))  data[BTN_HI] |= 0x01;
+		if (check_but(GPsettings.Button10)) data[BTN_HI] |= 0x02;
+		if (check_but(GPsettings.Button11)) data[BTN_HI] |= 0x04;
+		if (check_but(GPsettings.Button12)) data[BTN_HI] |= 0x08;
 
-		if ((pad.Buttons & GPsettings.POV_UY) && (pad.Buttons & GPsettings.POV_RX)) data[POV] = 2;
-		if ((pad.Buttons & GPsettings.POV_RX) && (pad.Buttons & GPsettings.POV_DY)) data[POV] = 4;
-		if ((pad.Buttons & GPsettings.POV_DY) && (pad.Buttons & GPsettings.POV_LX)) data[POV] = 6;
-		if ((pad.Buttons & GPsettings.POV_LX) && (pad.Buttons & GPsettings.POV_UY)) data[POV] = 8;
-		
-		if (check_but(GPsettings.Button1)) data[BUTTONS_1_4] |= 0x01 << 4;
-		if (check_but(GPsettings.Button2)) data[BUTTONS_1_4] |= 0x02 << 4;
-		if (check_but(GPsettings.Button3)) data[BUTTONS_1_4] |= 0x04 << 4;
-		if (check_but(GPsettings.Button4)) data[BUTTONS_1_4] |= 0x08 << 4;
-		
-		if (check_but(GPsettings.Button5)) data[BUTTONS_5_12] |= 0x01;
-		if (check_but(GPsettings.Button6)) data[BUTTONS_5_12] |= 0x02;
-		if (check_but(GPsettings.Button7)) data[BUTTONS_5_12] |= 0x04;
-		if (check_but(GPsettings.Button8)) data[BUTTONS_5_12] |= 0x08;
-		if (check_but(GPsettings.Button9)) data[BUTTONS_5_12] |= 0x10;
-		if (check_but(GPsettings.Button10)) data[BUTTONS_5_12] |= 0x20;
-		if (check_but(GPsettings.Button11)) data[BUTTONS_5_12] |= 0x40;
-		if (check_but(GPsettings.Button12)) data[BUTTONS_5_12] |= 0x80;
+		/* D-pad also as buttons 13-16 */
+		if (pad.Buttons & GPsettings.POV_UY) data[BTN_HI] |= 0x10;
+		if (pad.Buttons & GPsettings.POV_DY) data[BTN_HI] |= 0x20;
+		if (pad.Buttons & GPsettings.POV_LX) data[BTN_HI] |= 0x40;
+		if (pad.Buttons & GPsettings.POV_RX) data[BTN_HI] |= 0x80;
 		
 	sceKernelDcacheWritebackRange (data, sizeof (data));
 	
