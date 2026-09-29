@@ -105,7 +105,7 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(r.status, 200)
         st = json.loads(body)
         self.assertTrue(st["connected"])
-        self.assertEqual(st["protocol"], 2)
+        self.assertGreaterEqual(st["protocol"], 3)
 
     def test_list(self):
         r, body = self.request("GET", "/iso")

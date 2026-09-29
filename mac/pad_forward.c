@@ -1,6 +1,7 @@
 /* PSP Bridge — the PSP's gamepad into PPSSPP, see pad_forward.h */
 #include "pad_forward.h"
 #include "bridge_usb.h"
+#include "ws_client.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
@@ -150,85 +151,12 @@ static void *hid_thread(void *arg) {
     return NULL;
 }
 
-/* --- WebSocket client (just what PPSSPP's debugger needs) ------------------ */
-
-static int ws_connect(int port) {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in a;
-    memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET;
-    a.sin_port = htons((uint16_t)port);
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (connect(s, (struct sockaddr *)&a, sizeof(a)) != 0) {
-        close(s);
-        return -1;
-    }
-    int one = 1;
-    setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-    struct timeval tv = { 2, 0 };
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    char req[512];
-    int n = snprintf(req, sizeof(req),
-                     "GET /debugger HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nUpgrade: websocket\r\n"
-                     "Connection: Upgrade\r\nSec-WebSocket-Key: UFNQIEJyaWRnZSBwYWQhIQ==\r\n"
-                     "Sec-WebSocket-Version: 13\r\n\r\n",
-                     port);
-    if (send(s, req, (size_t)n, 0) != n) {
-        close(s);
-        return -1;
-    }
-    char resp[1024];
-    int got = 0;
-    while (got < (int)sizeof(resp) - 1) {
-        ssize_t k = recv(s, resp + got, sizeof(resp) - 1 - (size_t)got, 0);
-        if (k <= 0) break;
-        got += (int)k;
-        resp[got] = 0;
-        if (strstr(resp, "\r\n\r\n")) break;
-    }
-    resp[got] = 0;
-    if (strncmp(resp, "HTTP/1.1 101", 12) != 0) {
-        fprintf(stderr, "pspbridged: PPSSPP debugger refused: %.60s\n", resp);
-        close(s);
-        return -1;
-    }
-    /* PPSSPP sends replies and events; we only drain them */
-    struct timeval zero = { 0, 1000 };
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &zero, sizeof(zero));
-    return s;
-}
-
-static int ws_send_text(int s, const char *text) {
-    uint8_t frame[2048];
-    size_t len = strlen(text);
-    if (len > sizeof(frame) - 14) return -1;
-    size_t h = 0;
-    frame[h++] = 0x81; /* FIN + text */
-    if (len < 126) {
-        frame[h++] = 0x80 | (uint8_t)len;
-    } else {
-        frame[h++] = 0x80 | 126;
-        frame[h++] = (uint8_t)(len >> 8);
-        frame[h++] = (uint8_t)len;
-    }
-    uint8_t mask[4] = { 0x50, 0x53, 0x50, 0x21 };
-    memcpy(frame + h, mask, 4);
-    h += 4;
-    for (size_t i = 0; i < len; i++) frame[h + i] = (uint8_t)text[i] ^ mask[i & 3];
-    h += len;
-    return send(s, frame, h, 0) == (ssize_t)h ? 0 : -1;
-}
-
 /* Reads what PPSSPP sent back; reports its errors (e.g. unknown button) */
 static int ws_drain(int s) {
     char buf[4096];
     for (;;) {
-        ssize_t n = recv(s, buf, sizeof(buf) - 1, 0);
-        if (n == 0) return -1; /* closed */
-        if (n < 0) return (errno == EAGAIN || errno == EWOULDBLOCK) ? 0 : -1;
-        buf[n] = 0;
-        for (ssize_t i = 0; i < n; i++)
-            if (!buf[i]) buf[i] = ' ';
+        int n = ws_recv_text(s, buf, sizeof(buf), 0);
+        if (n <= 0) return n;
         char *e = strstr(buf, "\"error\"");
         if (e) fprintf(stderr, "pspbridged: PPSSPP says: %.200s\n", e);
     }

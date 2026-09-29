@@ -23,7 +23,7 @@
 
 #include <stdint.h>
 
-#define BRIDGE_PROTO_VERSION 2 /* 2: STAT, LIST, READ */
+#define BRIDGE_PROTO_VERSION 3 /* 2: STAT, LIST, READ; 3: save writes */
 
 #define BRIDGE_REQ_MAGIC  0x51524250u /* "PBRQ" */
 #define BRIDGE_RESP_MAGIC 0x53524250u /* "PBRS" */
@@ -43,6 +43,14 @@
 #define BRIDGE_CMD_STAT  3 /* path -> BridgeStat (BRIDGE_STAT_SIZE bytes) */
 #define BRIDGE_CMD_LIST  4 /* u32 start, path -> BridgeList + entries */
 #define BRIDGE_CMD_READ  5 /* u64 offset, u32 len, path -> data (short at EOF) */
+/* Writes: only under ms0:/PSP/SAVEDATA/ (bridge_path_writable) */
+#define BRIDGE_CMD_WRITE  6 /* u64 offset, u32 flags, u16 pathLen, u16 0, path, data */
+#define BRIDGE_CMD_MKDIR  7 /* path (already there = ok) */
+#define BRIDGE_CMD_RENAME 8 /* u16 fromLen, u16 0, from, to (to must not exist) */
+#define BRIDGE_CMD_REMOVE 9 /* path of a file */
+#define BRIDGE_WRITE_TRUNCATE 1 /* flags: create / empty the file first */
+#define BRIDGE_WRITE_ARGS 16
+#define BRIDGE_SAVEDATA "ms0:/PSP/SAVEDATA/"
 
 /* Status */
 #define BRIDGE_OK            0
@@ -53,6 +61,8 @@
 #define BRIDGE_ERR_NOENT    -5 /* no such file or directory */
 #define BRIDGE_ERR_IO       -6 /* Memory Stick error */
 #define BRIDGE_ERR_ARGS     -7 /* malformed request payload */
+#define BRIDGE_ERR_DENIED   -8 /* write outside ms0:/PSP/SAVEDATA/ */
+#define BRIDGE_ERR_EXIST    -9 /* rename target already there */
 
 typedef struct {
 	uint32_t magic;
@@ -109,12 +119,21 @@ typedef struct {
 	int (*stat)(void *ctx, const char *path, BridgeStat *st);
 	int (*list)(void *ctx, const char *path, BridgeListFn fn, void *user);
 	int (*read)(void *ctx, const char *path, uint64_t offset, uint8_t *dst, uint32_t len);
+	/* writes: return bytes written / 0, or a BRIDGE_ERR_* */
+	int (*write)(void *ctx, const char *path, uint64_t offset, const uint8_t *src,
+	             uint32_t len, int truncate);
+	int (*mkdir)(void *ctx, const char *path);
+	int (*rename)(void *ctx, const char *from, const char *to);
+	int (*remove)(void *ctx, const char *path);
 	void *ctx;
 } BridgeFs;
 
 /* 1 if `path` may be read: starts with "ms0:/", no "." or ".." component,
    no backslash or control character, shorter than BRIDGE_PATH_MAX */
 int bridge_path_ok(const char *path);
+/* 1 if `path` may be written: bridge_path_ok and strictly inside
+   ms0:/PSP/SAVEDATA/ */
+int bridge_path_writable(const char *path);
 
 void bridge_put_header(uint8_t *dst, const BridgeHeader *h);
 void bridge_get_header(const uint8_t *src, BridgeHeader *h);

@@ -3,6 +3,7 @@
 #include "fake_psp.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -76,6 +77,38 @@ static int fs_read(void *ctx, const char *path, uint64_t offset, uint8_t *dst, u
     return n < 0 ? BRIDGE_ERR_IO : (int)n;
 }
 
+static int fs_write(void *ctx, const char *path, uint64_t offset, const uint8_t *src,
+                    uint32_t len, int truncate) {
+    char p[2048];
+    if (host_path(ctx, path, p, sizeof(p))) return BRIDGE_ERR_IO;
+    int fd = open(p, O_WRONLY | O_CREAT | (truncate ? O_TRUNC : 0), 0644);
+    if (fd < 0) return BRIDGE_ERR_NOENT;
+    ssize_t n = len ? pwrite(fd, src, len, (off_t)offset) : 0;
+    close(fd);
+    return (n < 0 || (uint32_t)n != len) ? BRIDGE_ERR_IO : (int)n;
+}
+
+static int fs_mkdir(void *ctx, const char *path) {
+    char p[2048];
+    if (host_path(ctx, path, p, sizeof(p))) return BRIDGE_ERR_IO;
+    if (mkdir(p, 0755) != 0 && errno != EEXIST) return BRIDGE_ERR_NOENT;
+    return 0;
+}
+
+static int fs_rename(void *ctx, const char *from, const char *to) {
+    char a[2048], b[2048];
+    struct stat s;
+    if (host_path(ctx, from, a, sizeof(a)) || host_path(ctx, to, b, sizeof(b))) return BRIDGE_ERR_IO;
+    if (stat(b, &s) == 0) return BRIDGE_ERR_EXIST; /* FAT: rename never replaces */
+    return rename(a, b) == 0 ? 0 : BRIDGE_ERR_NOENT;
+}
+
+static int fs_remove(void *ctx, const char *path) {
+    char p[2048];
+    if (host_path(ctx, path, p, sizeof(p))) return BRIDGE_ERR_IO;
+    return unlink(p) == 0 ? 0 : BRIDGE_ERR_NOENT;
+}
+
 FakePsp *fake_psp_new(const char *root) {
     FakePsp *f = calloc(1, sizeof(FakePsp));
     if (!f) return NULL;
@@ -86,6 +119,10 @@ FakePsp *fake_psp_new(const char *root) {
     f->fs.stat = fs_stat;
     f->fs.list = fs_list;
     f->fs.read = fs_read;
+    f->fs.write = fs_write;
+    f->fs.mkdir = fs_mkdir;
+    f->fs.rename = fs_rename;
+    f->fs.remove = fs_remove;
     f->fs.ctx = f;
     return f;
 }

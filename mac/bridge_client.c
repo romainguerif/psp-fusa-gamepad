@@ -157,6 +157,82 @@ int bridge_read(BridgeClient *c, const char *path, uint64_t offset, uint32_t len
     return bridge_call(c, BRIDGE_CMD_READ, req, (uint32_t)(BRIDGE_READ_ARGS + n), dst, len, got);
 }
 
+int bridge_write_file(BridgeClient *c, const char *path, const uint8_t *data, uint32_t len) {
+    size_t n = strlen(path);
+    if (n == 0 || n >= BRIDGE_PATH_MAX) return BRIDGE_CLIENT_ERR_ARG;
+    uint32_t room = BRIDGE_MAX_PAYLOAD - BRIDGE_WRITE_ARGS - (uint32_t)n;
+    uint8_t *req = malloc(BRIDGE_MAX_PAYLOAD);
+    if (!req) return BRIDGE_CLIENT_ERR_IO;
+    uint32_t done = 0;
+    int st = BRIDGE_OK;
+    do {
+        uint32_t piece = len - done < room ? len - done : room;
+        uint8_t reply[4];
+        uint32_t got = 0;
+        bridge_put_u64(req, done);
+        bridge_put_u32(req + 8, done == 0 ? BRIDGE_WRITE_TRUNCATE : 0);
+        req[12] = (uint8_t)n;
+        req[13] = (uint8_t)(n >> 8);
+        req[14] = req[15] = 0;
+        memcpy(req + BRIDGE_WRITE_ARGS, path, n);
+        memcpy(req + BRIDGE_WRITE_ARGS + n, data + done, piece);
+        st = bridge_call(c, BRIDGE_CMD_WRITE, req, (uint32_t)(BRIDGE_WRITE_ARGS + n + piece), reply,
+                         sizeof(reply), &got);
+        if (st == BRIDGE_OK && (got != 4 || bridge_get_u32(reply) != piece)) st = BRIDGE_CLIENT_ERR_REPLY;
+        done += piece;
+    } while (st == BRIDGE_OK && done < len);
+    free(req);
+    return st;
+}
+
+static int path_call(BridgeClient *c, uint16_t cmd, const char *path) {
+    size_t n = strlen(path);
+    if (n == 0 || n >= BRIDGE_PATH_MAX) return BRIDGE_CLIENT_ERR_ARG;
+    return bridge_call(c, cmd, (const uint8_t *)path, (uint32_t)n, NULL, 0, NULL);
+}
+
+int bridge_mkdir(BridgeClient *c, const char *path) { return path_call(c, BRIDGE_CMD_MKDIR, path); }
+int bridge_remove(BridgeClient *c, const char *path) { return path_call(c, BRIDGE_CMD_REMOVE, path); }
+
+int bridge_rename(BridgeClient *c, const char *from, const char *to) {
+    size_t a = strlen(from), b = strlen(to);
+    if (!a || !b || a >= BRIDGE_PATH_MAX || b >= BRIDGE_PATH_MAX) return BRIDGE_CLIENT_ERR_ARG;
+    uint8_t req[4 + 2 * BRIDGE_PATH_MAX];
+    req[0] = (uint8_t)a;
+    req[1] = (uint8_t)(a >> 8);
+    req[2] = req[3] = 0;
+    memcpy(req + 4, from, a);
+    memcpy(req + 4 + a, to, b);
+    return bridge_call(c, BRIDGE_CMD_RENAME, req, (uint32_t)(4 + a + b), NULL, 0, NULL);
+}
+
+int bridge_read_file(BridgeClient *c, const char *path, uint8_t **data, uint32_t *len) {
+    BridgeStat st;
+    *data = NULL;
+    *len = 0;
+    int r = bridge_stat(c, path, &st);
+    if (r != BRIDGE_OK) return r;
+    if (st.type != BRIDGE_TYPE_FILE || st.size > (64u << 20)) return BRIDGE_CLIENT_ERR_ARG;
+    uint8_t *buf = malloc(st.size ? (size_t)st.size : 1);
+    if (!buf) return BRIDGE_CLIENT_ERR_IO;
+    uint32_t done = 0;
+    while (done < st.size) {
+        uint32_t want = (uint32_t)(st.size - done < BRIDGE_MAX_PAYLOAD ? st.size - done : BRIDGE_MAX_PAYLOAD);
+        uint32_t got = 0;
+        r = bridge_read(c, path, done, want, buf + done, &got);
+        if (r != BRIDGE_OK || got == 0) break;
+        done += got;
+    }
+    if (r == BRIDGE_OK && done != st.size) r = BRIDGE_CLIENT_ERR_REPLY;
+    if (r != BRIDGE_OK) {
+        free(buf);
+        return r;
+    }
+    *data = buf;
+    *len = done;
+    return BRIDGE_OK;
+}
+
 const char *bridge_strerror(int status) {
     switch (status) {
     case BRIDGE_OK: return "ok";
@@ -167,6 +243,8 @@ const char *bridge_strerror(int status) {
     case BRIDGE_ERR_NOENT: return "PSP: no such file";
     case BRIDGE_ERR_IO: return "PSP: Memory Stick error";
     case BRIDGE_ERR_ARGS: return "PSP: malformed request";
+    case BRIDGE_ERR_DENIED: return "PSP: writing there is not allowed";
+    case BRIDGE_ERR_EXIST: return "PSP: target already exists";
     case BRIDGE_CLIENT_ERR_IO: return "USB transfer failed or timed out";
     case BRIDGE_CLIENT_ERR_REPLY: return "unexpected reply";
     case BRIDGE_CLIENT_ERR_ARG: return "bad argument";

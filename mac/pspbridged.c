@@ -23,6 +23,8 @@
 #include "fake_psp.h"
 #include "iso_info.h"
 #include "pad_forward.h"
+#include "save_sync.h"
+#include "ws_client.h"
 
 #include <libusb.h>
 
@@ -628,6 +630,19 @@ static int ini_set(char **text, const char *key, const char *value) {
     return 1;
 }
 
+/* The Memory Stick folder chosen in PPSSPP (macOS preference), else its
+   default ~/.config/ppsspp */
+static void ppsspp_memstick(char *dir, size_t size) {
+    dir[0] = 0;
+    FILE *d = popen("/usr/bin/defaults read org.ppsspp.ppsspp "
+                    "UserPreferredMemoryStickDirectoryPath 2>/dev/null", "r");
+    if (d) {
+        if (fgets(dir, (int)size, d)) dir[strcspn(dir, "\r\n")] = 0;
+        pclose(d);
+    }
+    if (!dir[0]) snprintf(dir, size, "%s/.config/ppsspp", getenv("HOME") ? getenv("HOME") : "");
+}
+
 /* PPSSPP rewrites its ini when it quits: only edit it while it's closed */
 static void ppsspp_configure(void) {
     const char *home = getenv("HOME");
@@ -719,6 +734,109 @@ static void *agent_thread(void *arg) {
     return NULL;
 }
 
+/* --- saves: PPSSPP's game start/quit -> save_sync ---------------------------- */
+
+/* PSP side of save_sync through the shared, locked link */
+#define LINKED(call) \
+    pthread_mutex_lock(&g_lock); \
+    int st_ = link_up_locked() ? check_locked(call) : BRIDGE_CLIENT_ERR_IO; \
+    pthread_mutex_unlock(&g_lock); \
+    return st_;
+static int s_list(void *x, const char *d, BridgeListFn fn, void *u) { LINKED(bridge_list(&L.c, d, fn, u)) }
+static int s_read(void *x, const char *p, uint8_t **d, uint32_t *n) { LINKED(bridge_read_file(&L.c, p, d, n)) }
+static int s_write(void *x, const char *p, const uint8_t *d, uint32_t n) { LINKED(bridge_write_file(&L.c, p, d, n)) }
+static int s_mkdir(void *x, const char *p) { LINKED(bridge_mkdir(&L.c, p)) }
+static int s_rename(void *x, const char *a, const char *b) { LINKED(bridge_rename(&L.c, a, b)) }
+static int s_remove(void *x, const char *p) { LINKED(bridge_remove(&L.c, p)) }
+
+static void ppsspp_memstick(char *dir, size_t size);
+
+/* "game":{"id":"ULUS10041",... -> ULUS10041 ("" when no game) */
+static void json_game_id(const char *msg, char *id, size_t size) {
+    id[0] = 0;
+    const char *g = strstr(msg, "\"game\":{");
+    if (!g) return;
+    const char *k = strstr(g, "\"id\":\"");
+    if (!k) return;
+    k += 6;
+    size_t n = 0;
+    while (k[n] && k[n] != '"' && n + 1 < size) n++;
+    memcpy(id, k, n);
+    id[n] = 0;
+}
+
+static void *saves_thread(void *arg) {
+    SyncConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    SyncPsp sp = { s_list, s_read, s_write, s_mkdir, s_rename, s_remove, NULL };
+    cfg.psp = sp;
+    cfg.keepBackups = 20;
+    snprintf(cfg.backupDir, sizeof(cfg.backupDir), "%s/Library/Application Support/PSPBridge/Backups",
+             getenv("HOME") ? getenv("HOME") : "/tmp");
+
+    char game[64] = "";
+    for (;;) {
+        if (!ppsspp_running()) {
+            sleep(2);
+            continue;
+        }
+        int s = ws_connect(PPSSPP_DEBUGGER_PORT);
+        if (s < 0) {
+            sleep(2);
+            continue;
+        }
+        char memstick[900];
+        ppsspp_memstick(memstick, sizeof(memstick));
+        snprintf(cfg.macSaveDir, sizeof(cfg.macSaveDir), "%s/PSP/SAVEDATA", memstick);
+        ws_send_text(s, "{\"event\":\"game.status\"}");
+        char msg[8192];
+        for (;;) {
+            int n = ws_recv_text(s, msg, sizeof(msg), 2000);
+            if (n < 0) break;
+            if (n == 0) {
+                /* quiet: save what PPSSPP wrote */
+                if (game[0]) sync_push_changes(&cfg, game);
+                continue;
+            }
+            int start = strstr(msg, "\"event\":\"game.start\"") != NULL;
+            int status = strstr(msg, "\"event\":\"game.status\"") != NULL;
+            int quit = strstr(msg, "\"event\":\"game.quit\"") != NULL;
+            if (start) {
+                char id[64];
+                json_game_id(msg, id, sizeof(id));
+                snprintf(game, sizeof(game), "%s", id);
+                sync_reset();
+                if (game[0]) {
+                    /* hold the game while its saves come from the PSP */
+                    ws_send_text(s, "{\"event\":\"cpu.stepping\"}");
+                    int r = sync_game_start(&cfg, game);
+                    ws_send_text(s, "{\"event\":\"cpu.resume\"}");
+                    if (r < 0)
+                        fprintf(stderr, "pspbridged: %s started, PSP saves not reachable (%s)\n", game,
+                                bridge_strerror(r));
+                    else
+                        fprintf(stderr, "pspbridged: %s started, saves in sync (%d copied)\n", game, r);
+                }
+            } else if (status) {
+                /* joined a game already running: never pull, only push */
+                json_game_id(msg, game, sizeof(game));
+                sync_reset();
+                if (game[0]) fprintf(stderr, "pspbridged: %s already running, its new saves go to the PSP\n", game);
+            } else if (quit) {
+                if (game[0]) {
+                    for (int k = 0; k < 3; k++) sync_push_changes(&cfg, game);
+                    fprintf(stderr, "pspbridged: %s quit\n", game);
+                }
+                game[0] = 0;
+            }
+        }
+        close(s);
+        if (game[0]) sync_push_changes(&cfg, game);
+        sleep(1);
+    }
+    return NULL;
+}
+
 int main(int argc, char **argv) {
     int agent = 0;
     for (int i = 1; i < argc; i++) {
@@ -752,6 +870,9 @@ int main(int argc, char **argv) {
             g_fakeRoot ? "fake PSP" : "PSP over USB");
     if (agent) {
         pad_forward_start(PPSSPP_DEBUGGER_PORT);
+        pthread_t ts;
+        pthread_create(&ts, NULL, saves_thread, NULL);
+        pthread_detach(ts);
         pthread_t t;
         pthread_create(&t, NULL, agent_thread, NULL);
         pthread_detach(t);

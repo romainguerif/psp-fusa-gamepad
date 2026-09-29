@@ -56,6 +56,15 @@ int bridge_list(BridgeClient *c, const char *path, BridgeListFn fn, void *user);
 int bridge_read(BridgeClient *c, const char *path, uint64_t offset, uint32_t len,
                 uint8_t *dst, uint32_t *got);
 
+/* Save writes (protocol 3), only under ms0:/PSP/SAVEDATA/. len may exceed
+   one request: the data is sent in BRIDGE_MAX_PAYLOAD pieces. */
+int bridge_write_file(BridgeClient *c, const char *path, const uint8_t *data, uint32_t len);
+int bridge_mkdir(BridgeClient *c, const char *path);
+int bridge_rename(BridgeClient *c, const char *from, const char *to);
+int bridge_remove(BridgeClient *c, const char *path);
+/* Reads a whole file (malloc'd into *data, size in *len) */
+int bridge_read_file(BridgeClient *c, const char *path, uint8_t **data, uint32_t *len);
+
 const char *bridge_strerror(int status);
 
 #endif

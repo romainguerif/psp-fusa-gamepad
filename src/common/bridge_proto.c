@@ -47,6 +47,20 @@ int bridge_path_ok(const char *path) {
 	return 1;
 }
 
+int bridge_path_writable(const char *path) {
+	size_t n = strlen(BRIDGE_SAVEDATA);
+	return bridge_path_ok(path) && strncmp(path, BRIDGE_SAVEDATA, n) == 0 && path[n] != 0;
+}
+
+/* Copies n bytes at payload+at into `path` and checks it; 0 or an error */
+static int take_path_n(const uint8_t *payload, uint32_t at, uint32_t n, char *path) {
+	if (n == 0 || n >= BRIDGE_PATH_MAX) return BRIDGE_ERR_PATH;
+	memcpy(path, payload + at, n);
+	path[n] = 0;
+	if (strlen(path) != n) return BRIDGE_ERR_PATH;
+	return bridge_path_ok(path) ? 0 : BRIDGE_ERR_PATH;
+}
+
 /* Copies the path found at payload[at..len) into `path`; 0 or an error */
 static int take_path(const uint8_t *payload, uint32_t len, uint32_t at, char *path) {
 	uint32_t n;
@@ -222,6 +236,64 @@ void bridge_handle(const BridgeHeader *req, uint8_t *payload,
 			break;
 		}
 		resp->len = (uint32_t)n;
+		break;
+	}
+	case BRIDGE_CMD_WRITE: {
+		uint64_t offset;
+		uint32_t flags, pathLen;
+		int n;
+		if (req->len < BRIDGE_WRITE_ARGS) {
+			resp->status = BRIDGE_ERR_ARGS;
+			break;
+		}
+		offset = bridge_get_u64(payload);
+		flags = bridge_get_u32(payload + 8);
+		pathLen = get16(payload + 12);
+		if (BRIDGE_WRITE_ARGS + pathLen > req->len) {
+			resp->status = BRIDGE_ERR_ARGS;
+			break;
+		}
+		err = take_path_n(payload, BRIDGE_WRITE_ARGS, pathLen, path);
+		if (!err && !bridge_path_writable(path)) err = BRIDGE_ERR_DENIED;
+		if (err) {
+			resp->status = (int16_t)err;
+			break;
+		}
+		n = fs->write(fs->ctx, path, offset, payload + BRIDGE_WRITE_ARGS + pathLen,
+		              req->len - BRIDGE_WRITE_ARGS - pathLen, (flags & BRIDGE_WRITE_TRUNCATE) != 0);
+		if (n < 0) {
+			resp->status = (int16_t)n;
+			break;
+		}
+		bridge_put_u32(payload, (uint32_t)n);
+		resp->len = 4;
+		break;
+	}
+	case BRIDGE_CMD_MKDIR:
+	case BRIDGE_CMD_REMOVE:
+		err = take_path(payload, req->len, 0, path);
+		if (!err && !bridge_path_writable(path)) err = BRIDGE_ERR_DENIED;
+		if (!err)
+			err = req->cmd == BRIDGE_CMD_MKDIR ? fs->mkdir(fs->ctx, path) : fs->remove(fs->ctx, path);
+		resp->status = (int16_t)err;
+		break;
+	case BRIDGE_CMD_RENAME: {
+		char to[BRIDGE_PATH_MAX];
+		uint32_t fromLen;
+		if (req->len < 4) {
+			resp->status = BRIDGE_ERR_ARGS;
+			break;
+		}
+		fromLen = get16(payload);
+		if (4 + fromLen > req->len) {
+			resp->status = BRIDGE_ERR_ARGS;
+			break;
+		}
+		err = take_path_n(payload, 4, fromLen, path);
+		if (!err) err = take_path(payload, req->len, 4 + fromLen, to);
+		if (!err && (!bridge_path_writable(path) || !bridge_path_writable(to))) err = BRIDGE_ERR_DENIED;
+		if (!err) err = fs->rename(fs->ctx, path, to);
+		resp->status = (int16_t)err;
 		break;
 	}
 	default:

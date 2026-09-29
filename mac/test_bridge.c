@@ -94,6 +94,43 @@ static void file_tests(void) {
     CHECK(bridge_path_ok("ms0:/ISO/..hidden.iso"));
     CHECK(bridge_path_ok("ms0:/"));
 
+    /* save writes: only under ms0:/PSP/SAVEDATA/ */
+    {
+        char sd[600];
+        snprintf(sd, sizeof(sd), "%s/PSP", root); mkdir(sd, 0755);
+        snprintf(sd, sizeof(sd), "%s/PSP/SAVEDATA", root); mkdir(sd, 0755);
+        uint8_t *big = malloc(200000), *back = NULL;
+        uint32_t backLen = 0;
+        for (int i = 0; i < 200000; i++) big[i] = (uint8_t)(i * 13);
+        CHECK(bridge_mkdir(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00") == BRIDGE_OK);
+        CHECK(bridge_mkdir(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00") == BRIDGE_OK); /* already there */
+        CHECK(bridge_write_file(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN.pbtmp", big, 200000) == BRIDGE_OK);
+        CHECK(bridge_rename(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN.pbtmp",
+                            "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN") == BRIDGE_OK);
+        CHECK(bridge_read_file(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN", &back, &backLen) == BRIDGE_OK);
+        CHECK(backLen == 200000 && back && !memcmp(back, big, 200000));
+        free(back);
+        /* shorter rewrite truncates */
+        CHECK(bridge_write_file(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN", big, 10) == BRIDGE_OK);
+        CHECK(bridge_stat(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN", &st) == BRIDGE_OK && st.size == 10);
+        /* rename never replaces (FAT) */
+        CHECK(bridge_write_file(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/X", big, 5) == BRIDGE_OK);
+        CHECK(bridge_rename(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/X",
+                            "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN") == BRIDGE_ERR_EXIST);
+        CHECK(bridge_remove(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/X") == BRIDGE_OK);
+        CHECK(bridge_remove(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/X") == BRIDGE_ERR_NOENT);
+        /* everything outside SAVEDATA is refused */
+        CHECK(bridge_write_file(&c, "ms0:/ISO/GAME.iso", big, 5) == BRIDGE_ERR_DENIED);
+        CHECK(bridge_write_file(&c, "ms0:/PSP/SAVEDATA/", big, 5) == BRIDGE_ERR_DENIED);
+        CHECK(bridge_write_file(&c, "ms0:/PSP/SAVEDATA/../GAME/x", big, 5) == BRIDGE_ERR_PATH);
+        CHECK(bridge_mkdir(&c, "ms0:/PSP/GAME/EVIL") == BRIDGE_ERR_DENIED);
+        CHECK(bridge_remove(&c, "ms0:/ISO/GAME.iso") == BRIDGE_ERR_DENIED);
+        CHECK(bridge_rename(&c, "ms0:/ISO/GAME.iso", "ms0:/PSP/SAVEDATA/stolen") == BRIDGE_ERR_DENIED);
+        CHECK(bridge_rename(&c, "ms0:/PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN", "ms0:/ISO/x") == BRIDGE_ERR_DENIED);
+        CHECK(bridge_stat(&c, "ms0:/ISO/GAME.iso", &st) == BRIDGE_OK && st.size == isoSize); /* untouched */
+        free(big);
+    }
+
     /* the channel is still in step after all the errors */
     CHECK(bridge_echo_check(&c, 777, 3) == BRIDGE_OK);
 
