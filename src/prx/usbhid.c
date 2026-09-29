@@ -3,6 +3,8 @@
 #include <string.h>
 #include "fusainterface.h"
 #include "usbhid.h"
+#include "bridge.h"
+#include "../common/bridge_proto.h"
 
 void sceDisplayEnable();
 void sceDisplayDisable();
@@ -56,6 +58,14 @@ int fusaIsConnected(void)
 	return(connected);
 }
 
+int fusaBridgeStatus(int *requests)
+{
+	int n = 0;
+	int state = bridge_status(&n);
+	if (requests) *requests = n;
+	return state;
+}
+
 void fusaSetConfig(GP_Config * buf)
 {
 	memcpy(&GPsettings,buf,sizeof(GP_Config));
@@ -86,7 +96,7 @@ void usbSendData(void *data, int size)
 {
   if (!UsbBulkinReq.unused) {
 		memset( &UsbBulkinReq, 0, sizeof(UsbBulkinReq) );
-	  	UsbBulkinReq.endpoint = &endpoints[1];
+	  	UsbBulkinReq.endpoint = &endpoints[EP_HID];
 		UsbBulkinReq.data = data;
 		UsbBulkinReq.size = size;
 		UsbBulkinReq.onComplete = &UsbBulkinReqDone;
@@ -115,8 +125,13 @@ void usbSendSetupPacket(void *data, int size, int length)
 static
 int usb_recvctl (int arg1, int arg2, struct DeviceRequest *req)
 {
-  if ((req->bRequest == USB_REQ_GET_DESCRIPTOR) && ((req->wValue) == (USB_DT_REPORT << 8)) && (arg2 != -1)) {
+  /* HID report descriptor: interface 0 only (interface 1 is the file channel) */
+  if ((req->bRequest == USB_REQ_GET_DESCRIPTOR) && ((req->wValue) == (USB_DT_REPORT << 8)) && (arg2 != -1) && (req->wIndex == 0)) {
   	  usbSendSetupPacket(ReportDescriptorGamepad,sizeof(ReportDescriptorGamepad),req->wLength);
+  };
+  /* PSP Bridge: vendor request to interface 1 = reset the file channel */
+  if (((req->bmRequestType & 0x60) == 0x40) && (req->bRequest == BRIDGE_CTRL_RESET) && (req->wIndex == 1)) {
+  	  bridge_reset();
   };
   
   return 0;
@@ -172,7 +187,10 @@ int gamepad_int(SceSize args, void *argp)
 	sceCtrlSetSamplingCycle(0);
 	sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
 	
-	usb_start();
+	int ret = usb_start();
+	bridge_log("usb_start", ret);
+	if (ret >= 0)
+		bridge_start(&endpoints[EP_BULK_OUT], &endpoints[EP_BULK_IN]);
 	
 	while(active) {
 	
@@ -218,6 +236,7 @@ int gamepad_int(SceSize args, void *argp)
 	
 	}
 	
+	bridge_stop();
 	usb_stop();
 	
 	return 0;

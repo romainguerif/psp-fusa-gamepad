@@ -28,10 +28,22 @@ void waitbuttonup(int button)
 
 void display_config();
 
+/* PSP Bridge file channel (USB interface 1) */
+void display_bridge(){
+	static const char *names[] = { "off", "waiting", "ready", "ERROR (ms0:/pspbridge.log)" };
+	int requests = 0;
+	int state = fusaBridgeStatus(&requests);
+	if (state < 0 || state > 3) state = 0;
+	pspDebugScreenSetXY(18,17);
+	printf("files: %-26s", names[state]);
+	pspDebugScreenSetXY(18,18);
+	printf("requests: %-10d", requests);
+}
+
 void display_info(){
 	
 	pspDebugScreenSetXY(0,0);
-	printf(" .: FuSa GAMEPAD :: v3.2 :: fork by romainguerif :.\n");
+	printf(" .: PSP Bridge (FuSa GAMEPAD v3.2 + files) :: test :.\n");
 	pspDebugScreenSetXY(0,32);
 	printf(" ': Stick(X/Y) + D-pad(Z/Rz+Btn) :: v3.2 :'\n");
 }
@@ -192,6 +204,7 @@ int main(void)
 			
 			pspDebugScreenSetXY(25,15);
 			printf(":: CONNECTED ::\n");
+			display_bridge();
 		} else {
 			
 			fusaDisplay(1);
@@ -202,6 +215,7 @@ int main(void)
 			
 			pspDebugScreenSetXY(25,15);
 	    	printf(">-CONNECTING-->\n");
+			display_bridge();
 			
 			if (pad.Buttons & PSP_CTRL_HOME){
 			waitbuttonup(PSP_CTRL_HOME);

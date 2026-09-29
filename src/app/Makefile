@@ -7,7 +7,7 @@ CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
 ASFLAGS = $(CFLAGS)
 
 EXTRA_TARGETS = EBOOT.PBP
-PSP_EBOOT_TITLE = FuSa GAMEPAD v2.0
+PSP_EBOOT_TITLE = PSP Bridge (test USB)
 PSP_EBOOT_ICON = gamepad.png
 
 LIBDIR =

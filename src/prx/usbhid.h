@@ -102,20 +102,33 @@ char ReportDescriptorGamepad[] __attribute__ ((aligned(64))) = {
 };
 
  Endpoint blocks */
-// control Ep0 and our Ep1
+// PSP Bridge: composite device.
+//   interface 0 = FuSa HID gamepad, interrupt IN 0x81 (driver endpoint 1)
+//   interface 1 = file channel (vendor), bulk OUT 0x02 (driver endpoint 2)
+//                 and bulk IN 0x83 (driver endpoint 3), see bridge_proto.h
+#define EP_HID      1
+#define EP_BULK_OUT 2
+#define EP_BULK_IN  3
 static
-struct UsbEndpoint endpoints[2] = {
+struct UsbEndpoint endpoints[4] = {
   { 0, 0, 0 },
-  { 1, 0, 0 }
+  { 1, 0, 0 },
+  { 2, 0, 0 },
+  { 3, 0, 0 }
 };
 
-/* Interfaces */
-//Just one interface
+/* Interfaces: first number 0, two interfaces */
 static
 struct UsbInterface interfaces[1] = {
-  { -1, 0, 1 }
- // { 1, 0, 1 }
+  { -1, 0, 2 }
 };
+
+/* Configuration descriptor + both interfaces with their class and endpoint
+   descriptors, as the host reads them */
+#define CONFIG_TOTAL_LENGTH \
+  (USB_DT_CONFIG_SIZE + \
+   USB_DT_INTERFACE_SIZE + USB_DT_HID_SIZE + USB_DT_ENDPOINT_SIZE + \
+   USB_DT_INTERFACE_SIZE + 2 * USB_DT_ENDPOINT_SIZE)
 
 /* String descriptor */
 static
@@ -162,9 +175,10 @@ struct DeviceDescriptor devdesc_hi =
   1              /* bNumConfigurations */
 };
 
-/* Hi-Speed endpoint descriptors */
+/* Hi-Speed endpoint descriptors: HID first, then the file channel. One array,
+   in driver endpoint order */
 static
-struct EndpointDescriptor endpdesc_hi[2] =
+struct EndpointDescriptor endpdesc_hi[4] =
 {
   {
     USB_DT_ENDPOINT_SIZE,
@@ -175,13 +189,29 @@ struct EndpointDescriptor endpdesc_hi[2] =
     0x0A  /* bInterval */
   },
   {
+    USB_DT_ENDPOINT_SIZE,
+    USB_DT_ENDPOINT,
+    0x02, /* bEndpointAddress: bulk OUT */
+    0x02, /* bmAttributes: bulk */
+    512,  /* wMaxPacketSize */
+    0x00  /* bInterval */
+  },
+  {
+    USB_DT_ENDPOINT_SIZE,
+    USB_DT_ENDPOINT,
+    0x83, /* bEndpointAddress: bulk IN */
+    0x02, /* bmAttributes: bulk */
+    512,  /* wMaxPacketSize */
+    0x00  /* bInterval */
+  },
+  {
     0,
   }
 };
 
 /* Hi-Speed interface descriptor */
 static
-struct InterfaceDescriptor interdesc_hi[2] =
+struct InterfaceDescriptor interdesc_hi[3] =
 {
   {
     USB_DT_INTERFACE_SIZE,
@@ -189,7 +219,7 @@ struct InterfaceDescriptor interdesc_hi[2] =
     0,      /* bInterfaceNumber */
     0,      /* bAlternateSetting */
     1,      /* bNumEndpoints */
-    USB_CLASS_HID ,   /* bInterfaceClass */
+    USB_CLASS_HID,   /* bInterfaceClass */
     0x00,   /* bInterfaceSubClass */
     0x00,   /* bInterfaceProtocol */
     1,      /* iInterface */
@@ -198,16 +228,35 @@ struct InterfaceDescriptor interdesc_hi[2] =
     sizeof (hiddesc_gamepad)
   },
   {
+    USB_DT_INTERFACE_SIZE,
+    USB_DT_INTERFACE,
+    1,      /* bInterfaceNumber */
+    0,      /* bAlternateSetting */
+    2,      /* bNumEndpoints */
+    USB_CLASS_VENDOR_SPEC, /* bInterfaceClass: no host driver claims it */
+    0x01,   /* bInterfaceSubClass */
+    0xFF,   /* bInterfaceProtocol */
+    0,      /* iInterface */
+    &endpdesc_hi[1], /* endpoints */
+    NULL,
+    0
+  },
+  {
     0
   }
 };
 
 /* Hi-Speed settings */
 static
-struct InterfaceSettings settings_hi[1] =
+struct InterfaceSettings settings_hi[2] =
 {
   {
     &interdesc_hi[0],
+    0,
+    1
+  },
+  {
+    &interdesc_hi[1],
     0,
     1
   }
@@ -219,8 +268,8 @@ struct ConfigDescriptor confdesc_hi =
 {
   USB_DT_CONFIG_SIZE,
   USB_DT_CONFIG,
-  (USB_DT_INTERFACE_SIZE + USB_DT_CONFIG_SIZE + USB_DT_ENDPOINT_SIZE + USB_DT_HID_SIZE), /* wTotalLength */
-  1,      /* bNumInterfaces */
+  CONFIG_TOTAL_LENGTH, /* wTotalLength */
+  2,      /* bNumInterfaces */
   1,      /* bConfigurationValue */
   0,      /* iConfiguration */
   0xC0,   /* bmAttributes */
@@ -259,17 +308,34 @@ struct DeviceDescriptor devdesc_full =
   1              /* bNumConfigurations */
 };
 
-/* Full-Speed endpoint descriptors */
+/* Full-Speed endpoint descriptors: HID first, then the file channel. One array,
+   in driver endpoint order */
 static
-struct EndpointDescriptor endpdesc_full[2] =
+struct EndpointDescriptor endpdesc_full[4] =
 {
   {
-    USB_DT_ENDPOINT_SIZE ,
+    USB_DT_ENDPOINT_SIZE,
     USB_DT_ENDPOINT,
     0x81, /* bEndpointAddress */
     0x03, /* bmAttributes */
     0x04, /* wMaxPacketSize */
     0x0A  /* bInterval */
+  },
+  {
+    USB_DT_ENDPOINT_SIZE,
+    USB_DT_ENDPOINT,
+    0x02, /* bEndpointAddress: bulk OUT */
+    0x02, /* bmAttributes: bulk */
+    64,  /* wMaxPacketSize */
+    0x00  /* bInterval */
+  },
+  {
+    USB_DT_ENDPOINT_SIZE,
+    USB_DT_ENDPOINT,
+    0x83, /* bEndpointAddress: bulk IN */
+    0x02, /* bmAttributes: bulk */
+    64,  /* wMaxPacketSize */
+    0x00  /* bInterval */
   },
   {
     0,
@@ -279,7 +345,7 @@ struct EndpointDescriptor endpdesc_full[2] =
 
 /* Full-Speed interface descriptor */
 static
-struct InterfaceDescriptor interdesc_full[2] =
+struct InterfaceDescriptor interdesc_full[3] =
 {
   {
     USB_DT_INTERFACE_SIZE,
@@ -296,6 +362,20 @@ struct InterfaceDescriptor interdesc_full[2] =
     sizeof (hiddesc_gamepad)
   },
   {
+    USB_DT_INTERFACE_SIZE,
+    USB_DT_INTERFACE,
+    1,      /* bInterfaceNumber */
+    0,      /* bAlternateSetting */
+    2,      /* bNumEndpoints */
+    USB_CLASS_VENDOR_SPEC, /* bInterfaceClass: no host driver claims it */
+    0x01,   /* bInterfaceSubClass */
+    0xFF,   /* bInterfaceProtocol */
+    0,      /* iInterface */
+    &endpdesc_full[1], /* endpoints */
+    NULL,
+    0
+  },
+  {
     0
   }
 };
@@ -303,10 +383,15 @@ struct InterfaceDescriptor interdesc_full[2] =
 
 /* Full-Speed settings */
 static
-struct InterfaceSettings settings_full[1] =
+struct InterfaceSettings settings_full[2] =
 {
   {
     &interdesc_full[0],
+    0,
+    1
+  },
+  {
+    &interdesc_full[1],
     0,
     1
   }
@@ -318,8 +403,8 @@ struct ConfigDescriptor confdesc_full =
 {
   USB_DT_CONFIG_SIZE,
   USB_DT_CONFIG,
-  (USB_DT_INTERFACE_SIZE + USB_DT_CONFIG_SIZE + USB_DT_ENDPOINT_SIZE + USB_DT_HID_SIZE), /* wTotalLength */
-  1,      /* bNumInterfaces */
+  CONFIG_TOTAL_LENGTH, /* wTotalLength */
+  2,      /* bNumInterfaces */
   1,      /* bConfigurationValue */
   0,      /* iConfiguration */
   0xC0,   /* bmAttributes */
@@ -350,7 +435,7 @@ static void usb_configure (int usb_version, int desc_count, struct InterfaceSett
 struct UsbDriver driver =
 {
   PSP_USB_HID,        /* driverName */
-  2,                           /* numEndpoints */
+  4,                           /* numEndpoints (with control) */
   &endpoints[0],               /* endpoints */
   &interfaces[0],              /* interface */
   &devdesc_hi,                 /* descriptor_hi */

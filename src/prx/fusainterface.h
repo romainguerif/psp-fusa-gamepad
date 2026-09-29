@@ -27,3 +27,7 @@ void fusaSetConfig(GP_Config*);
 void fusaGetConfig(GP_Config*);
 void fusaDisplay(int);
 void fusaCtrlReadBufferPositive(SceCtrlData * pad);
+
+/* PSP Bridge file channel: 0 off, 1 waiting for the host, 2 ready,
+   3 error (see ms0:/pspbridge.log). `requests` = requests served. */
+int fusaBridgeStatus(int *requests);

@@ -18,6 +18,7 @@ PSP_EXPORT_FUNC(fusaGetConfig)
 PSP_EXPORT_FUNC(fusaSetConfig)
 PSP_EXPORT_FUNC(fusaCtrlReadBufferPositive)
 PSP_EXPORT_FUNC(fusaDisplay)
+PSP_EXPORT_FUNC(fusaBridgeStatus)
 PSP_EXPORT_END 
 
 PSP_END_EXPORTS

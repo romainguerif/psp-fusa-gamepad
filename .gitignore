@@ -2,3 +2,5 @@
 /*.elf
 /*.sfo
 /release
+/mac/build/
+/src/common/*.o
