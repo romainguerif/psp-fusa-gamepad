@@ -7,8 +7,9 @@ CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
 ASFLAGS = $(CFLAGS)
 
 EXTRA_TARGETS = EBOOT.PBP
-PSP_EBOOT_TITLE = PSP Bridge (test USB)
-PSP_EBOOT_ICON = gamepad.png
+PSP_EBOOT_TITLE = PSP Bridge
+PSP_EBOOT_ICON = icon0.png
+PSP_EBOOT_PIC1 = pic1.png
 
 LIBDIR =
 LIBS =

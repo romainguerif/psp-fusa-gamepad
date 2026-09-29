@@ -692,6 +692,8 @@ static void ppsspp_configure(void) {
     snprintf(dport, sizeof(dport), "%d", PPSSPP_DEBUGGER_PORT);
     changed |= ini_set(&text, "RemoteDebuggerOnStartup", "True");
     changed |= ini_set(&text, "RemoteISOPort", dport);
+    /* the PSP was plugged to play on the Mac: PPSSPP opens full screen */
+    changed |= ini_set(&text, "FullScreen", "True");
     if (changed) {
         snprintf(backup, sizeof(backup), "%s.before-pspbridge", path);
         if (access(backup, F_OK) != 0) {
@@ -704,7 +706,7 @@ static void ppsspp_configure(void) {
         if (f) {
             fwrite(text, 1, strlen(text), f);
             fclose(f);
-            fprintf(stderr, "pspbridged: PPSSPP set to open on the Remote tab (127.0.0.1:%d): %s\n", g_port, path);
+            fprintf(stderr, "pspbridged: PPSSPP set to open full screen on the Remote tab (127.0.0.1:%d): %s\n", g_port, path);
         }
     }
     free(text);
