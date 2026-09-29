@@ -6,6 +6,12 @@
  *   GET /status             {"connected":..., "protocol":...}
  *   GET /iso                JSON list: name, size, title, id, url
  *   GET|HEAD /iso/<name>    the ISO, with Range support (PPSSPP "Remote ISO")
+ *   GET /                   text/plain, one /iso/<name> per line: the listing
+ *                           PPSSPP's "Remote" games tab reads
+ *
+ *   --agent: also watches USB. When PSP Bridge appears (EBOOT started before
+ *   or after plugging), PPSSPP is set to open on its Remote tab pointing here
+ *   and is launched (or brought to the front). Meant to run as a LaunchAgent.
  *
  * Listens on 127.0.0.1 only. The PSP is reached through the file channel
  * (libusb), or a local folder playing ms0:/ with --fake (tests). USB access
@@ -16,6 +22,8 @@
 #include "bridge_usb.h"
 #include "fake_psp.h"
 #include "iso_info.h"
+
+#include <libusb.h>
 
 #include <arpa/inet.h>
 #include <ctype.h>
@@ -334,6 +342,24 @@ static int serve_status(int fd, int head, int keep) {
     return r;
 }
 
+/* "/" for PPSSPP's game browser: one path per line (text/plain), names in
+   clear: PPSSPP shows each line as is and encodes it itself when it asks
+   for the file */
+static int serve_root(int fd, int head, int keep) {
+    int st = refresh_isos();
+    if (st != BRIDGE_OK)
+        return send_simple(fd, 503, "Service Unavailable", "text/plain", "", head, keep);
+    Str s = { 0 };
+    str_addf(&s, "%s", "");
+    pthread_mutex_lock(&g_listLock);
+    for (int i = 0; i < g_nIsos; i++)
+        str_addf(&s, "/iso/%s\n", g_isos[i].name);
+    pthread_mutex_unlock(&g_listLock);
+    int r = send_simple(fd, 200, "OK", "text/plain", s.buf, head, keep);
+    free(s.buf);
+    return r;
+}
+
 static int serve_list(int fd, int head, int keep) {
     int st = refresh_isos();
     if (st != BRIDGE_OK) {
@@ -452,7 +478,6 @@ static int serve_iso(int fd, const char *rawName, const char *range, int head, i
     if (send_all(fd, hdr, (size_t)n)) return -1;
     if (head) return 0;
 
-    logf_("GET %s %llu-%llu\n", name, (unsigned long long)first, (unsigned long long)last);
     static __thread uint8_t chunk[BLOCK];
     uint64_t pos = first, end = first + length;
     while (pos < end) {
@@ -482,8 +507,28 @@ static void *conn_thread(void *arg) {
         size_t headLen = (size_t)(eoh - buf) + 4;
         *eoh = 0;
 
+        /* "METHOD target HTTP/1.x": PPSSPP sends spaces in the target
+           unencoded, so the target is everything between the first and the
+           last space of the line */
         char method[8] = "", target[2048] = "", version[16] = "";
-        if (sscanf(buf, "%7s %2047s %15s", method, target, version) != 3) goto done;
+        {
+            char *eol = strstr(buf, "\r\n");
+            size_t lineLen = eol ? (size_t)(eol - buf) : strlen(buf);
+            char *sp1 = memchr(buf, ' ', lineLen);
+            char *sp2 = NULL;
+            for (char *q = buf + lineLen; q > buf; q--)
+                if (q[-1] == ' ') { sp2 = q - 1; break; }
+            if (!sp1 || !sp2 || sp2 <= sp1 || (size_t)(sp1 - buf) >= sizeof(method) ||
+                (size_t)(sp2 - sp1 - 1) >= sizeof(target) ||
+                (size_t)(buf + lineLen - sp2 - 1) >= sizeof(version))
+                goto done;
+            memcpy(method, buf, (size_t)(sp1 - buf));
+            memcpy(target, sp1 + 1, (size_t)(sp2 - sp1 - 1));
+            memcpy(version, sp2 + 1, (size_t)(buf + lineLen - sp2 - 1));
+        }
+        /* PPSSPP joins its base URL (ending with /) and our paths: "//iso" */
+        while (target[0] == '/' && target[1] == '/')
+            memmove(target, target + 1, strlen(target));
         const char *range = NULL;
         int keep = !strcmp(version, "HTTP/1.1");
         char rangeBuf[128];
@@ -500,6 +545,7 @@ static void *conn_thread(void *arg) {
             }
         }
         int head = !strcmp(method, "HEAD");
+        logf_("%s %s%s%s\n", method, target, range ? "  Range:" : "", range ? range : "");
         int r;
         if (strcmp(method, "GET") && !head) {
             r = send_simple(fd, 405, "Method Not Allowed", "text/plain", "GET or HEAD\n", 0, 0);
@@ -508,6 +554,7 @@ static void *conn_thread(void *arg) {
             char *q = strchr(target, '?');
             if (q) *q = 0;
             if (!strcmp(target, "/status")) r = serve_status(fd, head, keep);
+            else if (!strcmp(target, "/")) r = serve_root(fd, head, keep);
             else if (!strcmp(target, "/iso") || !strcmp(target, "/iso/")) r = serve_list(fd, head, keep);
             else if (!strncmp(target, "/iso/", 5)) r = serve_iso(fd, target + 5, range, head, keep);
             else r = send_simple(fd, 404, "Not Found", "text/plain", "not found\n", head, keep);
@@ -523,15 +570,161 @@ done:
     return NULL;
 }
 
+/* --- agent: PSP plugged -> PPSSPP on the Remote tab --------------------------- */
+
+static int g_port = 8765;
+static const char *PPSSPP_APP = "PPSSPPSDL";
+
+static int psp_present(libusb_context *ctx) {
+    libusb_device **list;
+    ssize_t n = libusb_get_device_list(ctx, &list);
+    int found = 0;
+    for (ssize_t i = 0; i < n && !found; i++) {
+        struct libusb_device_descriptor d;
+        if (libusb_get_device_descriptor(list[i], &d) == 0 &&
+            d.idVendor == PSP_VID && d.idProduct == PSP_BRIDGE_PID)
+            found = 1;
+    }
+    if (n >= 0) libusb_free_device_list(list, 1);
+    return found;
+}
+
+static int ppsspp_running(void) {
+    return system("/usr/bin/pgrep -xq PPSSPPSDL") == 0;
+}
+
+/* Sets `key = value` in ppsspp.ini (keys are unique in that file). Adds the
+   key under [General] if missing. Returns 1 if the file changed. */
+static int ini_set(char **text, const char *key, const char *value) {
+    char want[256];
+    snprintf(want, sizeof(want), "%s = %s", key, value);
+    size_t klen = strlen(key);
+    char *p = *text;
+    while (p && *p) {
+        char *eol = strchr(p, '\n');
+        size_t len = eol ? (size_t)(eol - p) : strlen(p);
+        if (len > klen && !strncmp(p, key, klen) && (p[klen] == ' ' || p[klen] == '=')) {
+            if (len == strlen(want) && !strncmp(p, want, len)) return 0;
+            size_t head = (size_t)(p - *text), tail = strlen(p + len);
+            char *n = malloc(head + strlen(want) + tail + 1);
+            memcpy(n, *text, head);
+            strcpy(n + head, want);
+            strcpy(n + head + strlen(want), p + len);
+            free(*text);
+            *text = n;
+            return 1;
+        }
+        p = eol ? eol + 1 : NULL;
+    }
+    char *g = strstr(*text, "[General]\n");
+    if (!g) return 0;
+    size_t at = (size_t)(g - *text) + strlen("[General]\n");
+    char *n = malloc(strlen(*text) + strlen(want) + 2);
+    memcpy(n, *text, at);
+    sprintf(n + at, "%s\n%s", want, *text + at);
+    free(*text);
+    *text = n;
+    return 1;
+}
+
+/* PPSSPP rewrites its ini when it quits: only edit it while it's closed */
+static void ppsspp_configure(void) {
+    const char *home = getenv("HOME");
+    char path[1024], backup[1100];
+    if (!home) return;
+    if (getenv("PSPBRIDGE_PPSSPP_INI")) {
+        snprintf(path, sizeof(path), "%s", getenv("PSPBRIDGE_PPSSPP_INI"));
+    } else {
+        /* the Memory Stick folder chosen in PPSSPP (macOS preference), else
+           its default ~/.config/ppsspp */
+        char dir[900] = "";
+        FILE *d = popen("/usr/bin/defaults read org.ppsspp.ppsspp "
+                        "UserPreferredMemoryStickDirectoryPath 2>/dev/null", "r");
+        if (d) {
+            if (fgets(dir, sizeof(dir), d)) dir[strcspn(dir, "\r\n")] = 0;
+            pclose(d);
+        }
+        if (dir[0])
+            snprintf(path, sizeof(path), "%s/PSP/SYSTEM/ppsspp.ini", dir);
+        else
+            snprintf(path, sizeof(path), "%s/.config/ppsspp/PSP/SYSTEM/ppsspp.ini", home);
+    }
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "pspbridged: no %s, PPSSPP left as is\n", path);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *text = malloc((size_t)size + 1);
+    size_t got = fread(text, 1, (size_t)size, f);
+    fclose(f);
+    text[got] = 0;
+
+    char port[16];
+    snprintf(port, sizeof(port), "%d", g_port);
+    int changed = 0;
+    changed |= ini_set(&text, "RemoteTab", "True");
+    changed |= ini_set(&text, "DefaultTab", "3"); /* Recent, Games, Homebrew, Remote */
+    changed |= ini_set(&text, "RemoteISOManualConfig", "True");
+    changed |= ini_set(&text, "LastRemoteISOServer", "127.0.0.1");
+    changed |= ini_set(&text, "LastRemoteISOPort", port);
+    changed |= ini_set(&text, "RemoteISOSubdir", "/");
+    if (changed) {
+        snprintf(backup, sizeof(backup), "%s.before-pspbridge", path);
+        if (access(backup, F_OK) != 0) {
+            /* keep the untouched original, once */
+            char cmd[2400];
+            snprintf(cmd, sizeof(cmd), "/bin/cp '%s' '%s'", path, backup);
+            system(cmd);
+        }
+        f = fopen(path, "wb");
+        if (f) {
+            fwrite(text, 1, strlen(text), f);
+            fclose(f);
+            fprintf(stderr, "pspbridged: PPSSPP set to open on the Remote tab (127.0.0.1:%d): %s\n", g_port, path);
+        }
+    }
+    free(text);
+}
+
+static void *agent_thread(void *arg) {
+    libusb_context *ctx;
+    if (libusb_init(&ctx) != 0) return NULL;
+    int was = 0;
+    for (;;) {
+        int now = psp_present(ctx);
+        if (now && !was) {
+            fprintf(stderr, "pspbridged: PSP Bridge plugged\n");
+            if (!ppsspp_running()) ppsspp_configure();
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "/usr/bin/open -a %s", PPSSPP_APP);
+            system(cmd);
+        } else if (!now && was) {
+            fprintf(stderr, "pspbridged: PSP Bridge unplugged\n");
+            pthread_mutex_lock(&g_lock);
+            link_down_locked();
+            pthread_mutex_unlock(&g_lock);
+        }
+        was = now;
+        sleep(1);
+    }
+    return NULL;
+}
+
 int main(int argc, char **argv) {
-    int port = 8765;
+    int agent = 0;
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--port") && i + 1 < argc) port = atoi(argv[++i]);
+        if (!strcmp(argv[i], "--port") && i + 1 < argc) g_port = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--agent")) agent = 1;
+        else if (!strcmp(argv[i], "--configure-ppsspp")) { ppsspp_configure(); return 0; }
         else if (!strcmp(argv[i], "--fake") && i + 1 < argc) g_fakeRoot = argv[++i];
         else if (!strcmp(argv[i], "--iso-dir") && i + 1 < argc) g_isoDir = argv[++i];
         else if (!strcmp(argv[i], "--verbose")) g_verbose = 1;
+        else if (!strcmp(argv[i], "--log-requests")) g_verbose = 1;
         else {
-            fprintf(stderr, "usage: pspbridged [--port N] [--fake DIR] [--iso-dir ms0:/ISO] [--verbose]\n");
+            fprintf(stderr, "usage: pspbridged [--port N] [--agent] [--fake DIR] [--iso-dir ms0:/ISO] [--verbose]\n");
             return 2;
         }
     }
@@ -543,14 +736,19 @@ int main(int argc, char **argv) {
     struct sockaddr_in a;
     memset(&a, 0, sizeof(a));
     a.sin_family = AF_INET;
-    a.sin_port = htons((uint16_t)port);
+    a.sin_port = htons((uint16_t)g_port);
     a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (bind(s, (struct sockaddr *)&a, sizeof(a)) || listen(s, 16)) {
         perror("pspbridged: bind");
         return 1;
     }
-    fprintf(stderr, "pspbridged: http://127.0.0.1:%d/iso (%s)\n", port,
+    fprintf(stderr, "pspbridged: http://127.0.0.1:%d/iso (%s)\n", g_port,
             g_fakeRoot ? "fake PSP" : "PSP over USB");
+    if (agent) {
+        pthread_t t;
+        pthread_create(&t, NULL, agent_thread, NULL);
+        pthread_detach(t);
+    }
     for (;;) {
         int c = accept(s, NULL, NULL);
         if (c < 0) {

@@ -119,6 +119,28 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(racer["url"], "/iso/Test%20Racer.iso")
         self.assertEqual(games[0]["title"], "")
 
+    def test_root_listing_for_ppsspp(self):
+        # PPSSPP's Remote tab: text/plain, one path per line, games only
+        r, body = self.request("GET", "/", {"Accept": "text/plain, text/html; q=0.9, */*; q=0.8"})
+        self.assertEqual(r.status, 200)
+        self.assertTrue(r.getheader("Content-Type").startswith("text/plain"))
+        self.assertEqual(body.decode().splitlines(), ["/iso/blank.ISO", "/iso/Test Racer.iso"])
+        # what PPSSPP 1.20 really sends: base URL + line = "//iso/...", with
+        # the spaces not encoded
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        s.sendall(b"GET //iso/Test Racer.iso HTTP/1.1\r\nHost: x\r\nRange: bytes=0-99\r\n"
+                  b"Connection: close\r\n\r\n")
+        data = b""
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        s.close()
+        head, _, body = data.partition(b"\r\n\r\n")
+        self.assertIn(b"206", head.split(b"\r\n")[0])
+        self.assertEqual(body, self.iso[:100])
+
     def test_head(self):
         r, body = self.request("HEAD", "/iso/Test%20Racer.iso")
         self.assertEqual(r.status, 200)
