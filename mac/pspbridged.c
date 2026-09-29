@@ -22,6 +22,7 @@
 #include "bridge_usb.h"
 #include "fake_psp.h"
 #include "iso_info.h"
+#include "pad_forward.h"
 
 #include <libusb.h>
 
@@ -582,7 +583,7 @@ static int psp_present(libusb_context *ctx) {
     for (ssize_t i = 0; i < n && !found; i++) {
         struct libusb_device_descriptor d;
         if (libusb_get_device_descriptor(list[i], &d) == 0 &&
-            d.idVendor == PSP_VID && d.idProduct == PSP_BRIDGE_PID)
+            IS_PSP_BRIDGE(d.idVendor, d.idProduct))
             found = 1;
     }
     if (n >= 0) libusb_free_device_list(list, 1);
@@ -671,6 +672,11 @@ static void ppsspp_configure(void) {
     changed |= ini_set(&text, "LastRemoteISOServer", "127.0.0.1");
     changed |= ini_set(&text, "LastRemoteISOPort", port);
     changed |= ini_set(&text, "RemoteISOSubdir", "/");
+    /* the gamepad goes through PPSSPP's remote debugger (see pad_forward.h) */
+    char dport[16];
+    snprintf(dport, sizeof(dport), "%d", PPSSPP_DEBUGGER_PORT);
+    changed |= ini_set(&text, "RemoteDebuggerOnStartup", "True");
+    changed |= ini_set(&text, "RemoteISOPort", dport);
     if (changed) {
         snprintf(backup, sizeof(backup), "%s.before-pspbridge", path);
         if (access(backup, F_OK) != 0) {
@@ -745,6 +751,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "pspbridged: http://127.0.0.1:%d/iso (%s)\n", g_port,
             g_fakeRoot ? "fake PSP" : "PSP over USB");
     if (agent) {
+        pad_forward_start(PPSSPP_DEBUGGER_PORT);
         pthread_t t;
         pthread_create(&t, NULL, agent_thread, NULL);
         pthread_detach(t);

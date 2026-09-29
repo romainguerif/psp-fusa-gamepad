@@ -269,7 +269,7 @@ int usb_start(void)
   if (ret < 0) return ret;
   ret = sceUsbStart ( PSP_USB_HID, 0, 0);
   if (ret < 0) return ret;
-  ret = sceUsbActivate (PSP_USB_GAMEPAD_PID);
+  ret = sceUsbActivate (BRIDGE_USB_PID);
   return ret;
 }
 

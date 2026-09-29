@@ -2,6 +2,11 @@
 
 #define PSP_USB_HID			"FUSAGAMEPAD"
 #define PSP_USB_GAMEPAD_PID	0x01D2 //FuSa v3.2
+/* PSP Bridge's own USB identity (pid.codes open VID). With Sony's VID,
+   macOS 26's GameController framework claims the gamepad without driving
+   it, and SDL (PPSSPP) then ignores it. */
+#define BRIDGE_USB_VID		0x1209
+#define BRIDGE_USB_PID		0x5053
 
 #define DATA_SIZE			8
 
@@ -166,8 +171,8 @@ struct DeviceDescriptor devdesc_hi =
   0,             /* bDeviceSubClass */
   0,             /* bDeviceProtocol */
   64,            /* bMaxPacketSize0 */
-    0,             /* idVendor */
-    0,             /* idProduct */
+    BRIDGE_USB_VID, /* idVendor (0 = Sony's, filled in by the bus) */
+    BRIDGE_USB_PID, /* idProduct */
   0x103,         /* bcdDevice 0x290*/
     0,             /* iManufacturer */
     0,             /* iProduct */
@@ -300,8 +305,8 @@ struct DeviceDescriptor devdesc_full =
   0,             /* bDeviceSubClass */
   0,             /* bDeviceProtocol */
   64,            /* bMaxPacketSize0 (was 8) */
-  	0,             /* idProduct */
-  	0,             /* idVendor */
+  	BRIDGE_USB_VID, /* idVendor */
+  	BRIDGE_USB_PID, /* idProduct */
   0x103,         /* bcdDevice */
   	0,             /* iManufacturer */
  	0,             /* iProduct */

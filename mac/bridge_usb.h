@@ -5,7 +5,15 @@
 #include "bridge_client.h"
 
 #define PSP_VID        0x054C
-#define PSP_BRIDGE_PID 0x01D2 /* FuSa GamePad's product id, kept */
+#define PSP_BRIDGE_PID 0x01D2 /* FuSa GamePad's product id (first versions) */
+/* PSP Bridge's own identity since 29/09: not Sony's, so that macOS 26's
+   GameController framework leaves the gamepad to SDL/PPSSPP */
+#define BRIDGE_VID     0x1209
+#define BRIDGE_PID     0x5053
+/* The PSP's bus keeps Sony's vendor id whatever the descriptor says: in
+   practice PSP Bridge is 054C:5053 */
+#define IS_PSP_BRIDGE(v, p) \
+    (((v) == PSP_VID || (v) == BRIDGE_VID) && ((p) == BRIDGE_PID || (p) == PSP_BRIDGE_PID))
 
 typedef struct BridgeUsb BridgeUsb;
 

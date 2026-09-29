@@ -188,21 +188,28 @@ static void on_match(void *ctx, IOReturn result, void *sender, IOHIDDeviceRef de
 
 static IOHIDManagerRef pad_open(void) {
     IOHIDManagerRef m = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
-    int vid = PSP_VID, pid = PSP_BRIDGE_PID;
-    CFNumberRef v = CFNumberCreate(NULL, kCFNumberIntType, &vid);
-    CFNumberRef p = CFNumberCreate(NULL, kCFNumberIntType, &pid);
-    const void *keys[] = { CFSTR(kIOHIDVendorIDKey), CFSTR(kIOHIDProductIDKey) };
-    const void *vals[] = { v, p };
-    CFDictionaryRef match = CFDictionaryCreate(NULL, keys, vals, 2, &kCFTypeDictionaryKeyCallBacks,
-                                               &kCFTypeDictionaryValueCallBacks);
-    IOHIDManagerSetDeviceMatching(m, match);
+    /* both identities: PSP Bridge's own, and Sony's (first versions) */
+    int ids[2][2] = { { BRIDGE_VID, BRIDGE_PID }, { PSP_VID, PSP_BRIDGE_PID } };
+    CFDictionaryRef dicts[2];
+    for (int i = 0; i < 2; i++) {
+        CFNumberRef v = CFNumberCreate(NULL, kCFNumberIntType, &ids[i][0]);
+        CFNumberRef p = CFNumberCreate(NULL, kCFNumberIntType, &ids[i][1]);
+        const void *keys[] = { CFSTR(kIOHIDVendorIDKey), CFSTR(kIOHIDProductIDKey) };
+        const void *vals[] = { v, p };
+        dicts[i] = CFDictionaryCreate(NULL, keys, vals, 2, &kCFTypeDictionaryKeyCallBacks,
+                                      &kCFTypeDictionaryValueCallBacks);
+        CFRelease(v);
+        CFRelease(p);
+    }
+    CFArrayRef match = CFArrayCreate(NULL, (const void **)dicts, 2, &kCFTypeArrayCallBacks);
+    IOHIDManagerSetDeviceMatchingMultiple(m, match);
+    CFRelease(dicts[0]);
+    CFRelease(dicts[1]);
     IOHIDManagerRegisterDeviceMatchingCallback(m, on_match, NULL);
     IOHIDManagerScheduleWithRunLoop(m, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
     IOReturn r = IOHIDManagerOpen(m, kIOHIDOptionsTypeNone);
     if (r != kIOReturnSuccess) fprintf(stderr, "IOHIDManagerOpen: 0x%x\n", r);
     CFRelease(match);
-    CFRelease(v);
-    CFRelease(p);
     return m;
 }
 

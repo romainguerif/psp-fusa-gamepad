@@ -46,7 +46,7 @@ static libusb_device *find_psp(libusb_context *ctx, libusb_device ***listOut) {
     for (ssize_t i = 0; i < n && !found; i++) {
         struct libusb_device_descriptor d;
         if (libusb_get_device_descriptor(list[i], &d) == 0 &&
-            d.idVendor == PSP_VID && d.idProduct == PSP_BRIDGE_PID)
+            IS_PSP_BRIDGE(d.idVendor, d.idProduct))
             found = list[i];
     }
     *listOut = list;
@@ -62,8 +62,8 @@ int bridge_usb_describe(void) {
     }
     libusb_device *dev = find_psp(ctx, &list);
     if (!dev) {
-        printf("PSP not found (VID %04X PID %04X): is PSP Bridge running and the cable plugged?\n",
-               PSP_VID, PSP_BRIDGE_PID);
+        printf("PSP not found (%04X:%04X): is PSP Bridge running and the cable plugged?\n",
+               BRIDGE_VID, BRIDGE_PID);
         libusb_free_device_list(list, 1);
         libusb_exit(ctx);
         return -1;
@@ -121,7 +121,7 @@ BridgeUsb *bridge_usb_open(int timeoutMs, char *err, size_t errSize) {
     }
     libusb_device *dev = find_psp(u->ctx, &list);
     if (!dev) {
-        snprintf(err, errSize, "PSP not found (VID %04X PID %04X)", PSP_VID, PSP_BRIDGE_PID);
+        snprintf(err, errSize, "PSP not found (%04X:%04X)", BRIDGE_VID, BRIDGE_PID);
         goto fail;
     }
     /* The file channel: the vendor interface with one bulk IN and one bulk
