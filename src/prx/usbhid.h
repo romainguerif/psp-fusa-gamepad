@@ -294,11 +294,12 @@ struct DeviceDescriptor devdesc_full =
 {
   USB_DT_DEVICE_SIZE,
   USB_DT_DEVICE,
-  USB_BCD_110,         /* bcdUSB */
+  USB_BCD_200,         /* bcdUSB: 2.0 like psplinkusb (was 1.1: the link
+                          then stayed at full speed, ~1 MB/s) */
   USB_CLASS_PER_INTERFACE,  /* bDeviceClass */
   0,             /* bDeviceSubClass */
   0,             /* bDeviceProtocol */
-  8,            /* bMaxPacketSize0 */
+  64,            /* bMaxPacketSize0 (was 8) */
   	0,             /* idProduct */
   	0,             /* idVendor */
   0x103,         /* bcdDevice */
