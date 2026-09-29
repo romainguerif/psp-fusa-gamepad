@@ -46,6 +46,16 @@ int bridge_hello(BridgeClient *c, BridgeHello *hello);
    BRIDGE_CLIENT_ERR_REPLY on a data mismatch. */
 int bridge_echo_check(BridgeClient *c, uint32_t len, uint32_t seed);
 
+/* File commands (protocol 2). Paths: "ms0:/ISO/game.iso" */
+int bridge_stat(BridgeClient *c, const char *path, BridgeStat *st);
+/* Calls fn for every entry of the folder (asks again while the PSP says
+   "more"). fn returns 1 to stop. */
+int bridge_list(BridgeClient *c, const char *path, BridgeListFn fn, void *user);
+/* Reads up to len (<= BRIDGE_MAX_PAYLOAD) bytes at offset; *got = bytes
+   read (short at end of file) */
+int bridge_read(BridgeClient *c, const char *path, uint64_t offset, uint32_t len,
+                uint8_t *dst, uint32_t *got);
+
 const char *bridge_strerror(int status);
 
 #endif

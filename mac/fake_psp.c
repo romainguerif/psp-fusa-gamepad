@@ -2,8 +2,13 @@
    ../src/prx/bridge.c: header transfer, payload transfer, answer. */
 #include "fake_psp.h"
 
+#include <dirent.h>
+#include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 struct FakePsp {
     /* what the PSP expects next from the host */
@@ -11,14 +16,78 @@ struct FakePsp {
     BridgeHeader req;
     uint8_t payload[BRIDGE_MAX_PAYLOAD];
     unsigned requests;
+    char root[1024];
+    int hasRoot;
+    BridgeFs fs;
     /* what the PSP has queued for the host: whole transfers */
     uint8_t out[BRIDGE_HEADER_SIZE + BRIDGE_MAX_PAYLOAD];
     int outHdr;     /* bytes of header waiting (0 or 16) */
     int outPayload; /* bytes of payload waiting */
 };
 
-FakePsp *fake_psp_new(void) {
-    return calloc(1, sizeof(FakePsp));
+/* --- the Memory Stick: a local folder ------------------------------------- */
+
+static int host_path(FakePsp *f, const char *path, char *out, size_t size) {
+    if (!f->hasRoot) return BRIDGE_ERR_IO;
+    /* path was checked by bridge_path_ok: "ms0:/..." without ".." */
+    snprintf(out, size, "%s/%s", f->root, path + 5);
+    return 0;
+}
+
+static int fs_stat(void *ctx, const char *path, BridgeStat *st) {
+    char p[2048];
+    struct stat s;
+    if (host_path(ctx, path, p, sizeof(p))) return BRIDGE_ERR_IO;
+    if (stat(p, &s) != 0) return BRIDGE_ERR_NOENT;
+    st->type = S_ISDIR(s.st_mode) ? BRIDGE_TYPE_DIR : BRIDGE_TYPE_FILE;
+    st->size = S_ISDIR(s.st_mode) ? 0 : (uint64_t)s.st_size;
+    return 0;
+}
+
+static int fs_list(void *ctx, const char *path, BridgeListFn fn, void *user) {
+    char p[2048], q[4096];
+    if (host_path(ctx, path, p, sizeof(p))) return BRIDGE_ERR_IO;
+    DIR *d = opendir(p);
+    if (!d) return BRIDGE_ERR_NOENT;
+    struct dirent *de;
+    while ((de = readdir(d))) {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+        BridgeEntry e;
+        struct stat s;
+        memset(&e, 0, sizeof(e));
+        snprintf(q, sizeof(q), "%s/%s", p, de->d_name);
+        if (stat(q, &s) != 0) continue;
+        e.type = S_ISDIR(s.st_mode) ? BRIDGE_TYPE_DIR : BRIDGE_TYPE_FILE;
+        e.size = S_ISDIR(s.st_mode) ? 0 : (uint64_t)s.st_size;
+        snprintf(e.name, sizeof(e.name), "%s", de->d_name);
+        if (fn(user, &e)) break;
+    }
+    closedir(d);
+    return 0;
+}
+
+static int fs_read(void *ctx, const char *path, uint64_t offset, uint8_t *dst, uint32_t len) {
+    char p[2048];
+    if (host_path(ctx, path, p, sizeof(p))) return BRIDGE_ERR_IO;
+    int fd = open(p, O_RDONLY);
+    if (fd < 0) return BRIDGE_ERR_NOENT;
+    ssize_t n = pread(fd, dst, len, (off_t)offset);
+    close(fd);
+    return n < 0 ? BRIDGE_ERR_IO : (int)n;
+}
+
+FakePsp *fake_psp_new(const char *root) {
+    FakePsp *f = calloc(1, sizeof(FakePsp));
+    if (!f) return NULL;
+    if (root) {
+        snprintf(f->root, sizeof(f->root), "%s", root);
+        f->hasRoot = 1;
+    }
+    f->fs.stat = fs_stat;
+    f->fs.list = fs_list;
+    f->fs.read = fs_read;
+    f->fs.ctx = f;
+    return f;
 }
 
 void fake_psp_free(FakePsp *f) {
@@ -39,7 +108,7 @@ static void answer(FakePsp *f, const BridgeHeader *resp) {
 static void serve(FakePsp *f) {
     BridgeHeader resp;
     f->requests++;
-    bridge_handle(&f->req, f->payload, f->requests, &resp);
+    bridge_handle(&f->req, f->payload, f->requests, &f->fs, &resp);
     answer(f, &resp);
 }
 

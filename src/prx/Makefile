@@ -1,5 +1,5 @@
 TARGET = usbgamepad
-OBJS   = usbhid.o bridge.o ../common/bridge_proto.o
+OBJS   = usbhid.o bridge.o psp_fs.o ../common/bridge_proto.o
 LIBS   = -lpspusb_driver -lpspusbbus_driver -lpspdisplay_driver
 
 USE_KERNEL_LIBC=1

@@ -8,6 +8,8 @@
  *   pspbridge pad [S]            gamepad reports (HID, interface 0)
  *   pspbridge check [S]          the step-1 test: gamepad and file channel
  *                                together for S seconds, with a verdict
+ *   pspbridge ls [PATH]          list a Memory Stick folder (default ms0:/ISO)
+ *   pspbridge readbench FILE [S] read FILE in 64 KB requests for S seconds
  *
  * --fake runs hello/echo/bench against the in-process fake PSP.
  */
@@ -46,7 +48,7 @@ static int channel_open(Channel *ch, int fake) {
     memset(ch, 0, sizeof(*ch));
     ch->fake = fake;
     if (fake) {
-        ch->f = fake_psp_new();
+        ch->f = fake_psp_new(NULL);
         bridge_client_init(&ch->c, fake_psp_transport(ch->f));
         return 0;
     }
@@ -111,6 +113,51 @@ static int cmd_bench(Channel *ch, double seconds, uint32_t size) {
     printf("BENCH %u-byte echoes: %d in %.1f s, %.2f MB/s each way, %.2f ms per request\n",
            size, n, t, bytes / t / 1e6, t * 1000.0 / (n ? n : 1));
     return 0;
+}
+
+static int print_entry(void *u, const BridgeEntry *e) {
+    (*(int *)u)++;
+    if (e->type == BRIDGE_TYPE_DIR) printf("  %-12s  %s/\n", "", e->name);
+    else printf("  %12llu  %s\n", (unsigned long long)e->size, e->name);
+    return 0;
+}
+
+static int cmd_ls(Channel *ch, const char *path) {
+    int n = 0;
+    int st = bridge_list(&ch->c, path, print_entry, &n);
+    if (st != BRIDGE_OK) {
+        printf("LS %s failed: %s (%d)\n", path, bridge_strerror(st), st);
+        return 1;
+    }
+    printf("LS %s: %d entries\n", path, n);
+    return 0;
+}
+
+static int cmd_readbench(Channel *ch, const char *path, double seconds) {
+    BridgeStat s;
+    int st = bridge_stat(&ch->c, path, &s);
+    if (st != BRIDGE_OK || s.type != BRIDGE_TYPE_FILE) {
+        printf("READBENCH: %s: %s\n", path, st != BRIDGE_OK ? bridge_strerror(st) : "not a file");
+        return 1;
+    }
+    uint8_t *buf = malloc(BRIDGE_MAX_PAYLOAD);
+    uint64_t off = 0, bytes = 0;
+    double t0 = now_s(), t;
+    int n = 0;
+    while ((t = now_s()) - t0 < seconds && off < s.size) {
+        uint32_t got = 0;
+        st = bridge_read(&ch->c, path, off, BRIDGE_MAX_PAYLOAD, buf, &got);
+        if (st != BRIDGE_OK || got == 0) break;
+        off += got;
+        bytes += got;
+        n++;
+    }
+    free(buf);
+    t = now_s() - t0;
+    if (st != BRIDGE_OK) printf("READBENCH: read failed at %llu: %s\n", (unsigned long long)off, bridge_strerror(st));
+    printf("READBENCH %s: %.1f MB in %.1f s = %.2f MB/s (%d requests; a UMD reads ~1.6 MB/s)\n",
+           path, bytes / 1e6, t, bytes / t / 1e6, n);
+    return st == BRIDGE_OK ? 0 : 1;
 }
 
 /* --- gamepad (HID) ----------------------------------------------------------- */
@@ -252,7 +299,8 @@ static int cmd_check(double seconds) {
 static void usage(void) {
     fprintf(stderr,
             "usage: pspbridge [--fake] info | hello | echo [N] | bench [SECONDS] [SIZE] |\n"
-            "                          pad [SECONDS] | check [SECONDS]\n");
+            "                          pad [SECONDS] | check [SECONDS] | ls [PATH] |\n"
+            "                          readbench FILE [SECONDS]\n");
 }
 
 int main(int argc, char **argv) {
@@ -276,9 +324,12 @@ int main(int argc, char **argv) {
 
     Channel ch;
     int ret;
-    if (!strcmp(cmd, "hello") || !strcmp(cmd, "echo") || !strcmp(cmd, "bench")) {
+    if (!strcmp(cmd, "hello") || !strcmp(cmd, "echo") || !strcmp(cmd, "bench") ||
+        !strcmp(cmd, "ls") || (!strcmp(cmd, "readbench") && arg1)) {
         if (channel_open(&ch, fake) != 0) return 1;
         if (!strcmp(cmd, "hello")) ret = cmd_hello(&ch);
+        else if (!strcmp(cmd, "ls")) ret = cmd_ls(&ch, arg1 ? arg1 : "ms0:/ISO");
+        else if (!strcmp(cmd, "readbench")) ret = cmd_readbench(&ch, arg1, arg2 ? atof(arg2) : 10);
         else if (!strcmp(cmd, "echo")) ret = cmd_echo(&ch, arg1 ? atoi(arg1) : 200);
         else ret = cmd_bench(&ch, arg1 ? atof(arg1) : 5, arg2 ? (uint32_t)atoi(arg2) : 65536);
         channel_close(&ch);

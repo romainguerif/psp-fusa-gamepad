@@ -1,4 +1,4 @@
-# PSP Bridge — Mac tools (step 1). Needs Homebrew libusb and pkg-config.
+# PSP Bridge — Mac tools: pspbridge (step 1 tests), pspbridged (ISO server). Needs Homebrew libusb and pkg-config.
 #   make          build/pspbridge
 #   make test     offline tests (fake PSP, no cable)
 CC      ?= clang
@@ -12,7 +12,7 @@ PROTO  := ../src/common/bridge_proto.c
 COMMON := bridge_client.c fake_psp.c $(PROTO)
 HDRS   := bridge_client.h fake_psp.h bridge_usb.h ../src/common/bridge_proto.h
 
-all: $(BUILD)/pspbridge
+all: $(BUILD)/pspbridge $(BUILD)/pspbridged
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -21,11 +21,16 @@ $(BUILD)/pspbridge: pspbridge.c bridge_usb.c $(COMMON) $(HDRS) | $(BUILD)
 	$(CC) $(CFLAGS) $(USB_CFLAGS) pspbridge.c bridge_usb.c $(COMMON) -o $@ \
 		$(USB_LIBS) -framework IOKit -framework CoreFoundation -lpthread
 
+$(BUILD)/pspbridged: pspbridged.c bridge_usb.c iso_info.c iso_info.h $(COMMON) $(HDRS) | $(BUILD)
+	$(CC) $(CFLAGS) $(USB_CFLAGS) pspbridged.c bridge_usb.c iso_info.c $(COMMON) -o $@ \
+		$(USB_LIBS) -lpthread
+
 $(BUILD)/test_bridge: test_bridge.c $(COMMON) $(HDRS) | $(BUILD)
 	$(CC) $(CFLAGS) -fsanitize=address,undefined test_bridge.c $(COMMON) -o $@
 
-test: $(BUILD)/test_bridge $(BUILD)/pspbridge
+test: $(BUILD)/test_bridge $(BUILD)/pspbridge $(BUILD)/pspbridged
 	$(BUILD)/test_bridge
+	/opt/homebrew/bin/python3 test_http.py
 	$(BUILD)/pspbridge --fake hello
 	$(BUILD)/pspbridge --fake echo 500
 

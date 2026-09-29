@@ -10,7 +10,9 @@
 
 typedef struct FakePsp FakePsp;
 
-FakePsp *fake_psp_new(void);
+/* `root` is the folder that plays the Memory Stick (ms0:/), or NULL: then
+   STAT/LIST/READ answer BRIDGE_ERR_IO */
+FakePsp *fake_psp_new(const char *root);
 void fake_psp_free(FakePsp *f);
 BridgeTransport fake_psp_transport(FakePsp *f);
 unsigned fake_psp_requests(const FakePsp *f);

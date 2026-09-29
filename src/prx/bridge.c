@@ -10,6 +10,7 @@
 #include <string.h>
 #include "bridge.h"
 #include "../common/bridge_proto.h"
+#include "psp_fs.h"
 
 #define EVT_OUT_DONE 0x1
 #define EVT_IN_DONE  0x2
@@ -151,8 +152,10 @@ static int bridge_thread(SceSize args, void *argp)
 		int n, err;
 
 		if (!connected()) {
-			if (wasReady)
+			if (wasReady) {
 				bridge_log("host gone, requests", g_requests);
+				psp_fs_close();
+			}
 			wasReady = 0;
 			g_state = BRIDGE_STATE_WAITING;
 			sceKernelDelayThread(50 * 1000);
@@ -185,7 +188,7 @@ static int bridge_thread(SceSize args, void *argp)
 			g_requests++;
 			if (g_requests == 1)
 				bridge_log("first request, cmd", req.cmd);
-			bridge_handle(&req, g_payload, g_requests, &resp);
+			bridge_handle(&req, g_payload, g_requests, psp_fs(), &resp);
 		} else {
 			bridge_log("bad request", (unsigned int)err);
 			bridge_error_response(&req, err, &resp);
@@ -215,7 +218,7 @@ int bridge_start(struct UsbEndpoint *out, struct UsbEndpoint *in)
 	}
 	g_running = 1;
 	/* gamepad thread is 32: lower priority = higher number */
-	g_thid = sceKernelCreateThread("bridge_thread", bridge_thread, 40, 0x1000, 0, NULL);
+	g_thid = sceKernelCreateThread("bridge_thread", bridge_thread, 40, 0x2000, 0, NULL);
 	if (g_thid < 0 || sceKernelStartThread(g_thid, 0, NULL) < 0) {
 		bridge_log("thread failed", g_thid);
 		g_running = 0;
@@ -237,6 +240,7 @@ void bridge_stop(void)
 		sceKernelDeleteThread(g_thid);
 		g_thid = -1;
 	}
+	psp_fs_close();
 	if (g_evt >= 0) {
 		sceKernelDeleteEventFlag(g_evt);
 		g_evt = -1;
