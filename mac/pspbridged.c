@@ -87,11 +87,10 @@ static int link_up_locked(void) {
         L.f = fake_psp_new(g_fakeRoot);
         bridge_client_init(&L.c, fake_psp_transport(L.f));
     } else {
-        L.u = bridge_usb_open(TIMEOUT_MS, L.error, sizeof(L.error));
+        L.u = bridge_usb_connect(TIMEOUT_MS, &L.c, &L.hello, L.error, sizeof(L.error));
         if (!L.u) return 0;
-        bridge_client_init(&L.c, bridge_usb_transport(L.u));
     }
-    int st = bridge_hello(&L.c, &L.hello);
+    int st = L.u ? BRIDGE_OK : bridge_hello(&L.c, &L.hello);
     if (st != BRIDGE_OK || L.hello.version < 2) {
         if (st != BRIDGE_OK)
             snprintf(L.error, sizeof(L.error), "HELLO: %s", bridge_strerror(st));

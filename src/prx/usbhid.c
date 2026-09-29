@@ -1,4 +1,5 @@
 #include <pspkernel.h>
+#include <pspsdk.h>
 #include <pspctrl.h>
 #include <string.h>
 #include "fusainterface.h"
@@ -56,6 +57,16 @@ void fusaDisplay(int mode){
 int fusaIsConnected(void)
 {
 	return(connected);
+}
+
+void fusaBridgeFlushLog(void)
+{
+	/* called from the user-mode loader: without K1 = 0 the kernel refuses
+	   the file calls (their arguments live in kernel memory) */
+	int k1 = pspSdkSetK1(0);
+	bridge_watchdog();
+	bridge_flush_log();
+	pspSdkSetK1(k1);
 }
 
 int fusaBridgeStatus(int *requests)
@@ -125,6 +136,8 @@ void usbSendSetupPacket(void *data, int size, int length)
 static
 int usb_recvctl (int arg1, int arg2, struct DeviceRequest *req)
 {
+  if ((req->bmRequestType & 0x60) == 0x40)
+    bridge_note("vendor request/index", (req->bRequest << 16) | req->wIndex);
   /* HID report descriptor: interface 0 only (interface 1 is the file channel) */
   if ((req->bRequest == USB_REQ_GET_DESCRIPTOR) && ((req->wValue) == (USB_DT_REPORT << 8)) && (arg2 != -1) && (req->wIndex == 0)) {
   	  usbSendSetupPacket(ReportDescriptorGamepad,sizeof(ReportDescriptorGamepad),req->wLength);
@@ -141,6 +154,7 @@ int usb_recvctl (int arg1, int arg2, struct DeviceRequest *req)
 static
 int usb_change (int interfaceNumber, int alternateSetting)
 {
+  bridge_note("change interface/alt", (interfaceNumber << 16) | alternateSetting);
   return 0;
 }
 
@@ -148,6 +162,8 @@ int usb_change (int interfaceNumber, int alternateSetting)
 static
 int usb_attach (int usb_version)
 {
+  bridge_note("attach, usb version", usb_version);
+  bridge_note("hid ep bus number", endpoints[EP_HID].endpointNumber);
   connected = 1;
   return 0;
 }
@@ -163,6 +179,7 @@ void usb_detach (void)
 static
 void usb_configure (int usb_version, int desc_count, struct InterfaceSettings *settings)
 {
+  bridge_note("configure, desc count", desc_count);
   return;
 }
 

@@ -25,5 +25,12 @@ int bridge_status(int *requests);
 
 /* One line in ms0:/pspbridge.log (truncated at the first line of a run) */
 void bridge_log(const char *msg, unsigned int value);
+/* Writes the pending log lines to ms0:/pspbridge.log (loader's thread) */
+void bridge_flush_log(void);
+/* Stall detector, called every ~0.5 s from the loader's thread */
+void bridge_watchdog(void);
+/* Same as bridge_log, from the USB bus callbacks (no file access there): queued, written
+   by the bridge thread. `msg` must be a string constant. */
+void bridge_note(const char *msg, unsigned int value);
 
 #endif

@@ -17,6 +17,13 @@ int bridge_usb_describe(void);
    `err` on failure. */
 BridgeUsb *bridge_usb_open(int timeoutMs, char *err, size_t errSize);
 void bridge_usb_close(BridgeUsb *u);
+/* Brings the channel back in step after a previous client died mid-exchange:
+   asks the PSP to drop the exchange (vendor request), then throws away what
+   it still had queued. Use it when a first HELLO fails. */
+void bridge_usb_resync(BridgeUsb *u);
+/* Opens + HELLO, with one resync if needed. NULL + message on failure. */
+BridgeUsb *bridge_usb_connect(int timeoutMs, BridgeClient *c, BridgeHello *hello,
+                              char *err, size_t errSize);
 BridgeTransport bridge_usb_transport(BridgeUsb *u);
 
 #endif

@@ -52,12 +52,12 @@ static int channel_open(Channel *ch, int fake) {
         bridge_client_init(&ch->c, fake_psp_transport(ch->f));
         return 0;
     }
-    ch->u = bridge_usb_open(TIMEOUT_MS, err, sizeof(err));
+    BridgeHello h;
+    ch->u = bridge_usb_connect(TIMEOUT_MS, &ch->c, &h, err, sizeof(err));
     if (!ch->u) {
         fprintf(stderr, "file channel: %s\n", err);
         return -1;
     }
-    bridge_client_init(&ch->c, bridge_usb_transport(ch->u));
     return 0;
 }
 

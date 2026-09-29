@@ -31,3 +31,5 @@ void fusaCtrlReadBufferPositive(SceCtrlData * pad);
 /* PSP Bridge file channel: 0 off, 1 waiting for the host, 2 ready,
    3 error (see ms0:/pspbridge.log). `requests` = requests served. */
 int fusaBridgeStatus(int *requests);
+/* Writes the driver's pending log lines to ms0:/pspbridge.log */
+void fusaBridgeFlushLog(void);

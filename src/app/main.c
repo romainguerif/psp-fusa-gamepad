@@ -195,12 +195,27 @@ int main(void)
 	}
 	
 	int count = 0;
+	int ticks = 0;
 	
 	while(!done){
+		/* the driver's log, written from here: see bridge_flush_log() */
+		if ((++ticks % 50) == 0) fusaBridgeFlushLog();
+
 		
 		if (fusaIsConnected()) {
 			
-			if (count > 700) fusaDisplay(0); else count++;
+			/* screen off after 5 s; HOME wakes it and offers to quit, even
+			   while connected (the pad still reaches the Mac meanwhile) */
+			if (count > 500) fusaDisplay(0); else count++;
+			
+			fusaCtrlReadBufferPositive(&pad);
+			if (pad.Buttons & PSP_CTRL_HOME) {
+				fusaDisplay(1);
+				count = 0;
+				waitbuttonup(PSP_CTRL_HOME);
+				user_wanna_exit();
+				continue;
+			}
 			
 			pspDebugScreenSetXY(25,15);
 			printf(":: CONNECTED ::\n");
@@ -226,6 +241,7 @@ int main(void)
 		sceKernelDelayThread(10*1000);
 	}
 	
+	fusaBridgeFlushLog();
 	sceKernelExitGame();
 	return 0;
 }

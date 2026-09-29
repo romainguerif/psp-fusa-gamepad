@@ -6,6 +6,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* PSPBRIDGE_DEBUG=1 in the environment: one line per transfer */
+static int debug_on(void) {
+    static int v = -1;
+    if (v < 0) v = getenv("PSPBRIDGE_DEBUG") != NULL;
+    return v;
+}
+
 struct BridgeUsb {
     libusb_context *ctx;
     libusb_device_handle *h;
@@ -156,23 +163,51 @@ BridgeUsb *bridge_usb_open(int timeoutMs, char *err, size_t errSize) {
     }
     libusb_free_device_list(list, 1);
 
-    /* Start clean even if a previous run died mid-exchange: ask the PSP to
-       drop it (vendor request), then throw away what it still had queued */
-    libusb_control_transfer(u->h, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR |
-                            LIBUSB_RECIPIENT_INTERFACE, BRIDGE_CTRL_RESET, 0,
-                            (uint16_t)u->iface, NULL, 0, 500);
-    {
-        static unsigned char junk[BRIDGE_MAX_PAYLOAD];
-        int done;
-        while (libusb_bulk_transfer(u->h, u->epIn, junk, sizeof(junk), &done, 100) == 0 && done > 0)
-            ;
+    /* PSPBRIDGE_ALT=1: select the interface's setting explicitly
+       (SET_INTERFACE), for bus drivers that only enable its endpoints then */
+    if (getenv("PSPBRIDGE_ALT")) {
+        r = libusb_set_interface_alt_setting(u->h, u->iface, 0);
+        if (debug_on()) fprintf(stderr, "  SET_INTERFACE %d: %s\n", u->iface, r < 0 ? libusb_error_name(r) : "ok");
     }
+
     return u;
 
 fail:
     if (list) libusb_free_device_list(list, 1);
     bridge_usb_close(u);
     return NULL;
+}
+
+void bridge_usb_resync(BridgeUsb *u) {
+    static unsigned char junk[BRIDGE_MAX_PAYLOAD];
+    int done, r;
+    r = libusb_control_transfer(u->h, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR |
+                                LIBUSB_RECIPIENT_INTERFACE, BRIDGE_CTRL_RESET, 0,
+                                (uint16_t)u->iface, NULL, 0, 500);
+    if (debug_on()) fprintf(stderr, "  CTRL reset: %s\n", r < 0 ? libusb_error_name(r) : "ok");
+    while ((r = libusb_bulk_transfer(u->h, u->epIn, junk, sizeof(junk), &done, 200)) == 0 && done > 0)
+        if (debug_on()) fprintf(stderr, "  drained %d bytes\n", done);
+    libusb_clear_halt(u->h, u->epOut);
+    libusb_clear_halt(u->h, u->epIn);
+}
+
+BridgeUsb *bridge_usb_connect(int timeoutMs, BridgeClient *c, BridgeHello *hello,
+                              char *err, size_t errSize) {
+    BridgeUsb *u = bridge_usb_open(timeoutMs, err, errSize);
+    if (!u) return NULL;
+    bridge_client_init(c, bridge_usb_transport(u));
+    int st = bridge_hello(c, hello);
+    if (st != BRIDGE_OK) {
+        if (debug_on()) fprintf(stderr, "  first HELLO: %s, resync\n", bridge_strerror(st));
+        bridge_usb_resync(u);
+        st = bridge_hello(c, hello);
+    }
+    if (st != BRIDGE_OK) {
+        snprintf(err, errSize, "HELLO: %s", bridge_strerror(st));
+        bridge_usb_close(u);
+        return NULL;
+    }
+    return u;
 }
 
 void bridge_usb_close(BridgeUsb *u) {
@@ -189,6 +224,7 @@ static int usb_write(void *ctx, const uint8_t *data, int len) {
     BridgeUsb *u = ctx;
     int done = 0;
     int r = libusb_bulk_transfer(u->h, u->epOut, (unsigned char *)data, len, &done, u->timeoutMs);
+    if (debug_on()) fprintf(stderr, "  OUT %02X %d bytes: %s, %d sent\n", u->epOut, len, libusb_error_name(r), done);
     return (r == 0 && done == len) ? len : -1;
 }
 
@@ -196,6 +232,7 @@ static int usb_read(void *ctx, uint8_t *data, int len) {
     BridgeUsb *u = ctx;
     int done = 0;
     int r = libusb_bulk_transfer(u->h, u->epIn, data, len, &done, u->timeoutMs);
+    if (debug_on()) fprintf(stderr, "  IN  %02X %d bytes: %s, %d received\n", u->epIn, len, libusb_error_name(r), done);
     return (r == 0 && done == len) ? len : -1;
 }
 

@@ -2,11 +2,12 @@
 
 #include "pspstub.s"
 
-	STUB_START "fusaGamePad",0x40090000,0x00060005
+	STUB_START "fusaGamePad",0x40090000,0x00070005
 	STUB_FUNC  0x88B3EF0D,fusaIsConnected
 	STUB_FUNC  0xD3DADF7E,fusaGetConfig
 	STUB_FUNC  0xDCFBA056,fusaSetConfig
 	STUB_FUNC  0x4A04F7AD,fusaCtrlReadBufferPositive
 	STUB_FUNC  0x8A97CBA1,fusaDisplay
 	STUB_FUNC  0x9884F77B,fusaBridgeStatus
+	STUB_FUNC  0xD7CFA2E4,fusaBridgeFlushLog
 	STUB_END
